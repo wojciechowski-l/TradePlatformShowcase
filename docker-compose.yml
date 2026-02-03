@@ -1,0 +1,126 @@
+name: tradeplatform-dev
+
+services:
+  sql-server:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: trade-sql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Password123!"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sql_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Password123! -Q 'SELECT 1' -C -l 1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: trade-rabbitmq
+    hostname: trade-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+      - "15692:15692"
+    environment:
+      RABBITMQ_DEFAULT_USER: "guest"
+      RABBITMQ_DEFAULT_PASS: "guest"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./observability/enabled_plugins:/etc/rabbitmq/enabled_plugins
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: trade-prometheus
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - rabbitmq
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: trade-grafana
+    ports:
+      - "3100:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+  seq:
+    image: datalust/seq:latest
+    container_name: trade-seq
+    ports:
+      - "5341:80"
+    environment:
+      - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_ADMINPASSWORD=Password123!
+    volumes:
+      - seq_data:/data
+
+  api:
+    build:
+      context: .
+      dockerfile: TradePlatform.Api/Dockerfile
+    container_name: trade-api
+    ports:
+      - "8080:8080"
+    environment:
+      - ConnectionStrings__DefaultConnection=Server=trade-sql;Database=TradePlatformDb;User Id=sa;Password=Password123!;TrustServerCertificate=True;
+      - RabbitMQ__Host=trade-rabbitmq
+      - Seq__ServerUrl=http://trade-seq
+    depends_on:
+      sql-server:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      seq:
+        condition: service_started
+
+  worker:
+    build:
+      context: .
+      dockerfile: TradePlatform.Worker/Dockerfile
+    container_name: trade-worker
+    environment:
+      - ConnectionStrings__DefaultConnection=Server=trade-sql;Database=TradePlatformDb;User Id=sa;Password=Password123!;TrustServerCertificate=True;
+      - RabbitMQ__Host=trade-rabbitmq
+      - Seq__ServerUrl=http://trade-seq
+    depends_on:
+      sql-server:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      seq:
+        condition: service_started
+
+  client:
+    build:
+      context: ./Client
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=http://localhost:3000
+    container_name: trade-client
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+volumes:
+  sql_data:
+  rabbitmq_data:
+  grafana_data:
+  seq_data:

@@ -1,0 +1,75 @@
+name: tradeplatform-test
+
+services:
+  test-db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: trade-test-db
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Password123!"
+    ports:
+      - "1435:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Password123! -Q 'SELECT 1' -C || exit 1"]
+      interval: 10s
+      retries: 10
+      start_period: 20s
+
+  test-rabbit:
+    image: rabbitmq:4-management
+    container_name: trade-test-rabbit
+    hostname: trade-test-rabbit
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  test-api:
+    build:
+      context: .
+      dockerfile: TradePlatform.Api/Dockerfile
+    container_name: trade-api-e2e
+    ports:
+      - "8081:8080"
+    environment:
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=Server=test-db;Database=TradePlatformDb;User Id=sa;Password=Password123!;TrustServerCertificate=True;
+      - RabbitMQ__Host=trade-test-rabbit
+      - RabbitMQ__Port=5672
+      - Seq__ServerUrl=http://trade-test-seq
+    depends_on:
+      test-db:
+        condition: service_healthy
+      test-rabbit:
+        condition: service_healthy
+      test-seq:
+        condition: service_started
+    networks:
+      default:
+        aliases:
+          - trade-api
+
+  test-client:
+    build:
+      context: ./Client
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:8081
+    container_name: trade-client-e2e
+    ports:
+      - "3001:80"
+    depends_on:
+      - test-api
+
+  test-seq:
+    image: datalust/seq:latest
+    container_name: trade-test-seq
+    ports:
+      - "5342:80"
+    environment:
+      - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_ADMINPASSWORD=Password123!

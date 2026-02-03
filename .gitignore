@@ -1,0 +1,22 @@
+﻿# .NET
+bin/
+obj/
+.vs/
+*.user
+*.log
+
+# Node / React
+node_modules/
+dist/
+.env
+coverage/
+cypress/videos/
+cypress/screenshots/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Custom
+Review/
+prepare-review.ps1
