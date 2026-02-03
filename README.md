@@ -20,6 +20,16 @@ It exists to demonstrate:
 
 Features are added opportunistically to support these architectural goals; the project is not considered "feature complete" regarding business logic (e.g., complex auth flows or comprehensive UI).
 
+## How to Approach This Repository
+
+This project is a technology showcase and a discussion platform.
+
+- Some patterns are **deliberate trade-offs**, including minor optimizations, unusual timestamp handling, and explicit background service control.  
+- Some choices may differ from typical “production best practices” — that’s intentional.  
+- The purpose is to **stimulate reasoning and discussion**, not dictate a single correct solution.  
+
+When reviewing, consider asking “why” about the design, trade-offs, and edge-case handling — that’s exactly the conversation this repo is built for.
+
 ## Key Code Highlights
 
 If you are reviewing this repository, the most significant architectural patterns are located in the following files:
