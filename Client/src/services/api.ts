@@ -39,6 +39,16 @@ export interface AccountDto {
     ownerId: string;
 }
 
+export class ApiValidationError extends Error {
+    validationErrors: ValidationError;
+
+    constructor(message: string, errors: ValidationError) {
+        super(message);
+        this.name = "ApiValidationError";
+        this.validationErrors = errors;
+    }
+}
+
 export const loginUser = async (creds: LoginRequest): Promise<LoginResponse> => {
     const response = await fetch(`${API_BASE_URL}/api/auth/login?useCookies=false`, {
         method: 'POST',
@@ -93,9 +103,7 @@ export const submitTransaction = async (data: TransactionRequest, token: string)
             const errorData = await response.json();
 
             if (errorData.errors) {
-                const error = new Error("Validation Failed");
-                (error as any).validationErrors = errorData.errors;
-                throw error;
+                throw new ApiValidationError("Validation Failed", errorData.errors);
             }
         }
         throw new Error('Transaction submission failed');

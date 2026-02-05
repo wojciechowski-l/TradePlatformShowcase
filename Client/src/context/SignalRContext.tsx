@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, use, useEffect, useState } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { API_BASE_URL } from '../config';
 
@@ -8,7 +8,7 @@ interface SignalRContextType {
 
 const SignalRContext = createContext<SignalRContextType>({ connection: null });
 
-export const useSignalR = () => useContext(SignalRContext);
+export const useSignalR = () => use(SignalRContext);
 
 export const SignalRProvider = ({ children, token }: { children: React.ReactNode, token: string | null }) => {
     const [connection, setConnection] = useState<signalR.HubConnection | null>(null);

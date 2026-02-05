@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useActionState } from 'react';
 import { 
   Grid,
   TextField, 
@@ -19,86 +19,89 @@ interface TransactionFormProps {
   onSubmit: (data: TransactionFormData, setErrors: (errors: Record<string, string[]>) => void) => Promise<void>;
 }
 
+interface FormState {
+  errors: Record<string, string[]>;
+}
+
 export const TransactionForm: React.FC<TransactionFormProps> = ({ initialSourceId, onSubmit }) => {
-  const [formData, setFormData] = useState<TransactionFormData>({
-    sourceAccountId: initialSourceId,
-    targetAccountId: 'ACC-999',
-    amount: 100,
-    currency: 'USD'
-  });
+  
+  const submitAction = async (_prevState: FormState, formData: FormData): Promise<FormState> => {
+    const data: TransactionFormData = {
+      sourceAccountId: formData.get('sourceAccountId') as string,
+      targetAccountId: formData.get('targetAccountId') as string,
+      amount: Number(formData.get('amount')),
+      currency: formData.get('currency') as string,
+    };
 
-  const [loading, setLoading] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+    let validationErrors: Record<string, string[]> = {};
 
-  React.useEffect(() => {
-    setFormData(prev => ({ ...prev, sourceAccountId: initialSourceId }));
-  }, [initialSourceId]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setFieldErrors({});
+    const setErrorsAdapter = (errors: Record<string, string[]>) => {
+      validationErrors = errors;
+    };
 
     try {
-      await onSubmit(formData, setFieldErrors);
-    } catch (error) {
+      await onSubmit(data, setErrorsAdapter);
+    } catch (error: unknown) {
       console.error("Form submission error", error);
-    } finally {
-      setLoading(false);
     }
+
+    return { errors: validationErrors };
   };
 
+  const [state, formAction, isPending] = useActionState(submitAction, { errors: {} });
+
   const getFieldError = (field: string) => {
-    const errorList = fieldErrors[field] || fieldErrors[field.charAt(0).toUpperCase() + field.slice(1)];
+    const errorList = state.errors[field] || state.errors[field.charAt(0).toUpperCase() + field.slice(1)];
     return errorList ? errorList[0] : undefined;
   };
 
   return (
-    <form onSubmit={handleSubmit}>
+    <form action={formAction}>
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 6 }}>
           <TextField
             fullWidth
+            name="sourceAccountId"
             label="Source Account"
-            value={formData.sourceAccountId}
-            onChange={(e) => setFormData({ ...formData, sourceAccountId: e.target.value })}
+            defaultValue={initialSourceId}
+            key={initialSourceId} 
             error={!!getFieldError('sourceAccountId')}
             helperText={getFieldError('sourceAccountId')}
-            disabled={loading}
+            disabled={isPending}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6 }}>
           <TextField
             fullWidth
+            name="targetAccountId"
             label="Target Account"
-            value={formData.targetAccountId}
-            onChange={(e) => setFormData({ ...formData, targetAccountId: e.target.value })}
+            defaultValue="ACC-999"
             error={!!getFieldError('targetAccountId')}
             helperText={getFieldError('targetAccountId')}
-            disabled={loading}
+            disabled={isPending}
           />
         </Grid>
         <Grid size={{ xs: 8 }}>
           <TextField
             fullWidth
+            name="amount"
             type="number"
             label="Amount"
-            value={formData.amount}
-            onChange={(e) => setFormData({ ...formData, amount: Number(e.target.value) })}
+            defaultValue={100}
             error={!!getFieldError('amount')}
             helperText={getFieldError('amount')}
-            disabled={loading}
+            disabled={isPending}
           />
         </Grid>
         <Grid size={{ xs: 4 }}>
           <TextField
             fullWidth
+            name="currency"
             label="Currency"
-            value={formData.currency}
-            onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+            defaultValue="USD"
             error={!!getFieldError('currency')}
             helperText={getFieldError('currency')}
-            disabled={loading}
+            disabled={isPending}
           />
         </Grid>
       </Grid>
@@ -108,11 +111,11 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ initialSourceI
         variant="contained"
         size="large"
         type="submit"
-        disabled={loading}
-        startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
+        disabled={isPending}
+        startIcon={isPending ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
         sx={{ mt: 4 }}
       >
-        {loading ? 'Processing...' : 'Submit Transaction'}
+        {isPending ? 'Processing...' : 'Submit Transaction'}
       </Button>
     </form>
   );

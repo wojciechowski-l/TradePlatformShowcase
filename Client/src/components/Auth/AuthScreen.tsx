@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
     Box, TextField, Button, Typography, CircularProgress, 
-    InputAdornment, IconButton, Alert 
+    InputAdornment, IconButton, Alert, Snackbar
 } from '@mui/material';
 import { 
     Visibility, VisibilityOff, LockOutlined as LockIcon 
@@ -17,6 +17,7 @@ export const AuthScreen: React.FC = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
     const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -29,11 +30,15 @@ export const AuthScreen: React.FC = () => {
                 login(result.accessToken, email);
             } else {
                 await registerUser({ email, password });
-                alert("Registration Successful! Please log in.");
+                setSuccessMessage("Registration Successful! Please log in.");
                 setIsLoginMode(true);
             }
-        } catch (err: any) {
-            setError(err.message);
+        } catch (err: unknown) {
+            if (err instanceof Error) {
+                setError(err.message);
+            } else {
+                setError("An unexpected error occurred");
+            }
         } finally {
             setLoading(false);
         }
@@ -80,6 +85,17 @@ export const AuthScreen: React.FC = () => {
             <Button onClick={() => { setIsLoginMode(!isLoginMode); setError(null); }}>
                 {isLoginMode ? "Need an account? Register" : "Have an account? Sign In"}
             </Button>
+
+            <Snackbar
+                open={!!successMessage}
+                autoHideDuration={6000}
+                onClose={() => setSuccessMessage(null)}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            >
+                <Alert onClose={() => setSuccessMessage(null)} severity="success" sx={{ width: '100%' }}>
+                    {successMessage}
+                </Alert>
+            </Snackbar>
         </Box>
     );
 };

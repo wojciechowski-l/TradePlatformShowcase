@@ -3,7 +3,12 @@ import { Box, Typography, Alert, Snackbar, CircularProgress } from '@mui/materia
 import { CheckCircle as SuccessIcon } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 import { useSignalR } from '../../context/SignalRContext';
-import { submitTransaction, getMyAccount, provisionAccount } from '../../services/api';
+import { 
+    submitTransaction, 
+    getMyAccount, 
+    provisionAccount, 
+    ApiValidationError 
+} from '../../services/api';
 import { TransactionForm, TransactionFormData } from './TransactionForm';
 
 export const Dashboard: React.FC = () => {
@@ -16,8 +21,7 @@ export const Dashboard: React.FC = () => {
 
     const [myAccountId, setMyAccountId] = useState<string>(''); 
     const [loadingAccount, setLoadingAccount] = useState(true);
-    
-    // Safety check - although App renders this only if authenticated
+
     if (!token) return null;
 
     useEffect(() => {
@@ -35,8 +39,8 @@ export const Dashboard: React.FC = () => {
                 if (!controller.signal.aborted) {
                     setMyAccountId(account.id);
                 }
-            } catch (err: any) {
-                if (err.name === 'AbortError') return;
+            } catch (err: unknown) {
+                if (err instanceof Error && err.name === 'AbortError') return;
 
                 console.warn("Fetch failed, attempting provision...", err);
                 try {
@@ -44,8 +48,9 @@ export const Dashboard: React.FC = () => {
                     if (!controller.signal.aborted) {
                         setMyAccountId(newAccount.id);
                     }
-                } catch (provErr: any) {
-                    if (provErr.name !== 'AbortError') {
+                } catch (provErr: unknown) {
+                    const isAbort = provErr instanceof Error && provErr.name === 'AbortError';
+                    if (!isAbort) {
                         setGlobalError("Could not load or create your account. Please refresh.");
                     }
                 }
@@ -67,7 +72,7 @@ export const Dashboard: React.FC = () => {
             const joinGroup = () => {
                 connection.invoke("JoinAccountGroup", myAccountId)
                     .then(() => console.log(`Joined group: ${myAccountId}`))
-                    .catch(err => console.warn("SignalR Join Error:", err));
+                    .catch((err: unknown) => console.warn("SignalR Join Error:", err));
             };
 
             joinGroup();
@@ -90,13 +95,17 @@ export const Dashboard: React.FC = () => {
         try {
             const result = await submitTransaction(data, token);
             setLastId(result.id);
-        } catch (err: any) {
-            if (err.message.includes("Unauthorized")) {
-                logout();
-            } else if (err.validationErrors) {
+        } catch (err: unknown) {
+            if (err instanceof ApiValidationError) {
                 setErrors(err.validationErrors);
+            } else if (err instanceof Error) {
+                if (err.message.includes("Unauthorized")) {
+                    logout();
+                } else {
+                    setGlobalError(err.message);
+                }
             } else {
-                setGlobalError(err.message);
+                setGlobalError("An unexpected error occurred.");
             }
         }
     };

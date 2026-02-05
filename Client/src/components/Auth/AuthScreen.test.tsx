@@ -13,7 +13,6 @@ describe('AuthScreen', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        // Mock the useAuth hook to return our spy
         vi.mocked(useAuth).mockReturnValue({
             login: mockLogin,
             logout: vi.fn(),
@@ -60,6 +59,29 @@ describe('AuthScreen', () => {
         await waitFor(() => {
             expect(mockLogin).toHaveBeenCalledWith('fake-jwt', 'test@test.com');
         });
+    });
+
+    it('displays success message after registration', async () => {
+        const user = userEvent.setup();
+
+        vi.mocked(api.registerUser).mockResolvedValue(undefined);
+
+        render(<AuthScreen />);
+
+        await user.click(screen.getByText(/need an account\? register/i));
+
+        await user.type(screen.getByLabelText(/email/i), 'new@test.com');
+        await user.type(screen.getByLabelText(/password/i), 'Password123!');
+        await user.click(screen.getByRole('button', { name: /register/i }));
+
+        expect(api.registerUser).toHaveBeenCalledWith({
+            email: 'new@test.com',
+            password: 'Password123!'
+        });
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(/registration successful/i);
+
+        expect(await screen.findByRole('heading', { name: /sign in/i })).toBeInTheDocument();
     });
 
     it('displays error alert when login fails', async () => {

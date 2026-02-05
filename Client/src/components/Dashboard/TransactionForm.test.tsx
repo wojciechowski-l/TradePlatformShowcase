@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react'; // Add waitFor
 import userEvent from '@testing-library/user-event';
 import { TransactionForm } from './TransactionForm';
 import { vi, describe, it, expect } from 'vitest';
@@ -30,15 +30,18 @@ describe('TransactionForm', () => {
 
         await user.click(screen.getByRole('button', { name: /submit transaction/i }));
 
-        expect(mockSubmit).toHaveBeenCalledTimes(1);
-        expect(mockSubmit).toHaveBeenCalledWith(
-            expect.objectContaining({
-                sourceAccountId: initialSourceId,
-                targetAccountId: 'TARGET-ABC',
-                amount: 500
-            }),
-            expect.any(Function)
-        );
+        await waitFor(() => {
+            expect(mockSubmit).toHaveBeenCalledTimes(1);
+            expect(mockSubmit).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    sourceAccountId: initialSourceId,
+                    targetAccountId: 'TARGET-ABC',
+                    amount: 500,
+                    currency: 'USD'
+                }),
+                expect.any(Function)
+            );
+        });
     });
 
     it('displays validation errors passed from the parent', async () => {
