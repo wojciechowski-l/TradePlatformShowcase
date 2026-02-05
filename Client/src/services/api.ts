@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5046';
+import { API_BASE_URL } from '../config';
 
 export interface LoginRequest {
     email: string;
@@ -104,9 +104,10 @@ export const submitTransaction = async (data: TransactionRequest, token: string)
     return response.json();
 };
 
-export const getMyAccount = async (token: string): Promise<AccountDto | null> => {
+export const getMyAccount = async (token: string, signal?: AbortSignal): Promise<AccountDto | null> => {
     const response = await fetch(`${API_BASE_URL}/api/accounts/my-account`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal
     });
 
     if (response.status === 404) return null;
@@ -114,10 +115,11 @@ export const getMyAccount = async (token: string): Promise<AccountDto | null> =>
     return response.json();
 };
 
-export const provisionAccount = async (token: string): Promise<AccountDto> => {
+export const provisionAccount = async (token: string, signal?: AbortSignal): Promise<AccountDto> => {
     const response = await fetch(`${API_BASE_URL}/api/accounts/provision`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal
     });
 
     if (!response.ok) throw new Error('Failed to provision account');

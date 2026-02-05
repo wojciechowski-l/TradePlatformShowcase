@@ -21,36 +21,60 @@ export const Dashboard: React.FC<DashboardProps> = ({ token, userEmail, onLogout
     const [loadingAccount, setLoadingAccount] = useState(true);
     
     useEffect(() => {
+        const controller = new AbortController();
+
         const initAccount = async () => {
             try {
-
-                let account = await getMyAccount(token);
+                let account = await getMyAccount(token, controller.signal);
 
                 if (!account) {
                     console.log("Account missing. Provisioning...");
-                    account = await provisionAccount(token);
+                    account = await provisionAccount(token, controller.signal);
                 }
-                setMyAccountId(account.id);
-            } catch (err) {
+                
+                if (!controller.signal.aborted) {
+                    setMyAccountId(account.id);
+                }
+            } catch (err: any) {
+                if (err.name === 'AbortError') return;
+
                 console.warn("Fetch failed, attempting provision...", err);
                 try {
-                    const newAccount = await provisionAccount(token);
-                    setMyAccountId(newAccount.id);
-                } catch (provErr) {
-                    setGlobalError("Could not load or create your account. Please refresh.");
+                    const newAccount = await provisionAccount(token, controller.signal);
+                    if (!controller.signal.aborted) {
+                        setMyAccountId(newAccount.id);
+                    }
+                } catch (provErr: any) {
+                    if (provErr.name !== 'AbortError') {
+                        setGlobalError("Could not load or create your account. Please refresh.");
+                    }
                 }
             } finally {
-                setLoadingAccount(false);
+                if (!controller.signal.aborted) {
+                    setLoadingAccount(false);
+                }
             }
         };
+
         initAccount();
+
+        return () => {
+            controller.abort();
+        };
     }, [token]);
 
     useEffect(() => {
         if (connection && myAccountId) {
-            connection.invoke("JoinAccountGroup", myAccountId)
-                .then(() => console.log(`Joined group: ${myAccountId}`))
-                .catch(err => console.warn("SignalR Join Error:", err));
+            const joinGroup = () => {
+                connection.invoke("JoinAccountGroup", myAccountId)
+                    .then(() => console.log(`Joined group: ${myAccountId}`))
+                    .catch(err => console.warn("SignalR Join Error:", err));
+            };
+
+            joinGroup();
+
+            // Re-join on reconnection
+            connection.onreconnected(joinGroup);
         }
     }, [connection, myAccountId]);
 

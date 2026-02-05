@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import * as signalR from '@microsoft/signalr';
+import { API_BASE_URL } from '../config';
 
 interface SignalRContextType {
     connection: signalR.HubConnection | null;
@@ -12,13 +13,11 @@ export const useSignalR = () => useContext(SignalRContext);
 export const SignalRProvider = ({ children, token }: { children: React.ReactNode, token: string | null }) => {
     const [connection, setConnection] = useState<signalR.HubConnection | null>(null);
 
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5046';
-
     useEffect(() => {
         if (!token) return;
 
         const newConnection = new signalR.HubConnectionBuilder()
-            .withUrl(`${API_URL}/hubs/trade`, {
+            .withUrl(`${API_BASE_URL}/hubs/trade`, {
                 accessTokenFactory: () => token 
             })
             .withAutomaticReconnect()
@@ -34,7 +33,7 @@ export const SignalRProvider = ({ children, token }: { children: React.ReactNode
         return () => {
             newConnection.stop();
         };
-    }, [token, API_URL]);
+    }, [token]);
 
     return (
         <SignalRContext.Provider value={{ connection }}>
