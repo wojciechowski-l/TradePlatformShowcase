@@ -68,18 +68,20 @@ public partial class Worker(
                     try
                     {
                         var message = Encoding.UTF8.GetString(ea.Body.ToArray());
-                        transactionId = JsonSerializer.Deserialize<Guid>(message);
 
-                        if (transactionId == Guid.Empty)
+                        var eventPayload = JsonSerializer.Deserialize<TransactionCreatedEvent>(message);
+
+                        if (eventPayload == null || eventPayload.TransactionId == Guid.Empty)
                         {
                             LogEmptyGuid();
                             await AckAsync(ea);
                             return;
                         }
 
+                        transactionId = eventPayload.TransactionId;
                         LogProcessingMsg(transactionId);
 
-                        await ProcessTransactionAsync(transactionId);
+                        await ProcessTransactionAsync(eventPayload);
 
                         await AckAsync(ea);
                     }
@@ -150,52 +152,44 @@ public partial class Worker(
         }
     }
 
-    private async Task ProcessTransactionAsync(Guid transactionId)
+    private async Task ProcessTransactionAsync(TransactionCreatedEvent evt)
     {
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<TradeContext>();
 
         await Task.Delay(500);
 
-        // Atomic Status Update
         var rowsAffected = await dbContext.Database.ExecuteSqlInterpolatedAsync(
-        $"UPDATE Transactions SET Status = {TransactionStatus.Processed} WHERE Id = {transactionId} AND Status = {TransactionStatus.Pending}");
+        $"UPDATE Transactions SET Status = {TransactionStatus.Processed} WHERE Id = {evt.TransactionId} AND Status = {TransactionStatus.Pending}");
 
         if (rowsAffected == 1)
         {
-            LogTransactionProcessed(transactionId);
+            LogTransactionProcessed(evt.TransactionId);
 
-            var transaction = await dbContext.Transactions
-                .AsNoTracking()
-                .FirstOrDefaultAsync(t => t.Id == transactionId);
-
-            if (transaction != null)
+            var update = new TransactionUpdateDto
             {
-                var update = new TransactionUpdateDto
-                {
-                    TransactionId = transaction.Id,
-                    Status = transaction.Status,
-                    AccountId = transaction.SourceAccountId,
-                    UpdatedAtUtc = DateTime.UtcNow
-                };
+                TransactionId = evt.TransactionId,
+                Status = TransactionStatus.Processed,
+                AccountId = evt.SourceAccountId,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
 
-                var json = JsonSerializer.Serialize(update);
-                var body = Encoding.UTF8.GetBytes(json);
+            var json = JsonSerializer.Serialize(update);
+            var body = Encoding.UTF8.GetBytes(json);
 
-                await _channel!.BasicPublishAsync(
-                    exchange: MessagingConstants.NotificationsExchange,
-                    routingKey: string.Empty,
-                    mandatory: false,
-                    body: body);
-            }
+            await _channel!.BasicPublishAsync(
+                exchange: MessagingConstants.NotificationsExchange,
+                routingKey: string.Empty,
+                mandatory: false,
+                body: body);
         }
         else if (rowsAffected == 0)
         {
-            var exists = await dbContext.Transactions.AnyAsync(t => t.Id == transactionId);
+            var exists = await dbContext.Transactions.AnyAsync(t => t.Id == evt.TransactionId);
             if (exists)
-                LogTransactionAlreadyProcessed(transactionId, TransactionStatus.Processed);
+                LogTransactionAlreadyProcessed(evt.TransactionId, TransactionStatus.Processed);
             else
-                LogTransactionNotFound(transactionId);
+                LogTransactionNotFound(evt.TransactionId);
         }
     }
 

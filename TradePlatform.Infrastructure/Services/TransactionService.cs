@@ -12,6 +12,8 @@ namespace TradePlatform.Infrastructure.Services
 
         public async Task<CreateTransactionResult> CreateTransactionAsync(TransactionDto request)
         {
+
+
             var transaction = new TransactionRecord
             {
                 Id = Guid.NewGuid(),
@@ -23,11 +25,19 @@ namespace TradePlatform.Infrastructure.Services
                 CreatedAtUtc = DateTime.UtcNow
             };
 
+            var eventPayload = new TransactionCreatedEvent(
+                transaction.Id,
+                transaction.SourceAccountId,
+                transaction.TargetAccountId,
+                transaction.Amount,
+                transaction.Currency
+            );
+
             var outboxMessage = new OutboxMessage
             {
                 Id = Guid.NewGuid(),
                 Type = "TransactionCreated",
-                Payload = JsonSerializer.Serialize(transaction.Id),
+                Payload = JsonSerializer.Serialize(eventPayload),
                 CreatedAtUtc = DateTime.UtcNow
             };
 
