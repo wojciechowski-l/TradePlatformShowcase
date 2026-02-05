@@ -1,22 +1,22 @@
 import React from 'react';
 import { AppBar, Toolbar, Typography, Button } from '@mui/material';
+import { useAuth } from '../../context/AuthContext';
 
-interface HeaderProps {
-    isAuthenticated: boolean;
-    onLogout: () => void;
-}
+export const Header: React.FC = () => {
+    const { isAuthenticated, logout } = useAuth();
 
-export const Header: React.FC<HeaderProps> = ({ isAuthenticated, onLogout }) => (
-    <AppBar position="static">
-        <Toolbar>
-            <Typography variant="h6" sx={{ flexGrow: 1 }}>
-                TradePlatform Enterprise
-            </Typography>
-            {isAuthenticated && (
-                <Button color="inherit" onClick={onLogout}>
-                    Logout
-                </Button>
-            )}
-        </Toolbar>
-    </AppBar>
-);
+    return (
+        <AppBar position="static">
+            <Toolbar>
+                <Typography variant="h6" sx={{ flexGrow: 1 }}>
+                    TradePlatform Enterprise
+                </Typography>
+                {isAuthenticated && (
+                    <Button color="inherit" onClick={logout}>
+                        Logout
+                    </Button>
+                )}
+            </Toolbar>
+        </AppBar>
+    );
+};

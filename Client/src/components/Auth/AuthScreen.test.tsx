@@ -3,25 +3,35 @@ import userEvent from '@testing-library/user-event';
 import { AuthScreen } from './AuthScreen';
 import * as api from '../../services/api';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { useAuth } from '../../context/AuthContext';
 
 vi.mock('../../services/api');
+vi.mock('../../context/AuthContext');
 
 describe('AuthScreen', () => {
-    const mockLoginSuccess = vi.fn();
+    const mockLogin = vi.fn();
 
     beforeEach(() => {
         vi.clearAllMocks();
+        // Mock the useAuth hook to return our spy
+        vi.mocked(useAuth).mockReturnValue({
+            login: mockLogin,
+            logout: vi.fn(),
+            token: null,
+            userEmail: '',
+            isAuthenticated: false
+        });
     });
 
     it('defaults to Sign In mode', () => {
-        render(<AuthScreen onLoginSuccess={mockLoginSuccess} />);
+        render(<AuthScreen />);
         expect(screen.getByRole('heading', { name: /sign in/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
     });
 
     it('toggles to Register mode when link is clicked', async () => {
         const user = userEvent.setup();
-        render(<AuthScreen onLoginSuccess={mockLoginSuccess} />);
+        render(<AuthScreen />);
 
         const toggleBtn = screen.getByText(/need an account\? register/i);
         await user.click(toggleBtn);
@@ -30,13 +40,13 @@ describe('AuthScreen', () => {
         expect(screen.getByRole('button', { name: /register/i })).toBeInTheDocument();
     });
 
-    it('calls login API and notifies parent on success', async () => {
+    it('calls login API and notifies context on success', async () => {
         const user = userEvent.setup();
         
         const mockResponse = { accessToken: 'fake-jwt', tokenType: 'Bearer', expiresIn: 3600, refreshToken: 'ref' };
         vi.mocked(api.loginUser).mockResolvedValue(mockResponse);
 
-        render(<AuthScreen onLoginSuccess={mockLoginSuccess} />);
+        render(<AuthScreen />);
 
         await user.type(screen.getByLabelText(/email/i), 'test@test.com');
         await user.type(screen.getByLabelText(/password/i), 'Password123!');
@@ -48,7 +58,7 @@ describe('AuthScreen', () => {
         });
 
         await waitFor(() => {
-            expect(mockLoginSuccess).toHaveBeenCalledWith('fake-jwt', 'test@test.com');
+            expect(mockLogin).toHaveBeenCalledWith('fake-jwt', 'test@test.com');
         });
     });
 
@@ -57,13 +67,13 @@ describe('AuthScreen', () => {
         
         vi.mocked(api.loginUser).mockRejectedValue(new Error('Invalid Credentials'));
 
-        render(<AuthScreen onLoginSuccess={mockLoginSuccess} />);
+        render(<AuthScreen />);
 
         await user.type(screen.getByLabelText(/email/i), 'wrong@test.com');
         await user.type(screen.getByLabelText(/password/i), 'wrong');
         await user.click(screen.getByRole('button', { name: /sign in/i }));
 
         expect(await screen.findByRole('alert')).toHaveTextContent('Invalid Credentials');
-        expect(mockLoginSuccess).not.toHaveBeenCalled();
+        expect(mockLogin).not.toHaveBeenCalled();
     });
 });

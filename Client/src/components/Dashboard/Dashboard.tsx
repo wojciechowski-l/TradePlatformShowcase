@@ -1,18 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Typography, Alert, Snackbar, CircularProgress } from '@mui/material';
 import { CheckCircle as SuccessIcon } from '@mui/icons-material';
+import { useAuth } from '../../context/AuthContext';
 import { useSignalR } from '../../context/SignalRContext';
 import { submitTransaction, getMyAccount, provisionAccount } from '../../services/api';
 import { TransactionForm, TransactionFormData } from './TransactionForm';
 
-interface DashboardProps {
-    token: string;
-    userEmail: string;
-    onLogout: () => void;
-}
-
-export const Dashboard: React.FC<DashboardProps> = ({ token, userEmail, onLogout }) => {
+export const Dashboard: React.FC = () => {
+    const { token, userEmail, logout } = useAuth();
     const { connection } = useSignalR();
+    
     const [lastId, setLastId] = useState<string | null>(null);
     const [notification, setNotification] = useState<string | null>(null);
     const [globalError, setGlobalError] = useState<string | null>(null);
@@ -20,6 +17,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ token, userEmail, onLogout
     const [myAccountId, setMyAccountId] = useState<string>(''); 
     const [loadingAccount, setLoadingAccount] = useState(true);
     
+    // Safety check - although App renders this only if authenticated
+    if (!token) return null;
+
     useEffect(() => {
         const controller = new AbortController();
 
@@ -55,7 +55,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ token, userEmail, onLogout
                 }
             }
         };
-
         initAccount();
 
         return () => {
@@ -72,8 +71,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ token, userEmail, onLogout
             };
 
             joinGroup();
-
-            // Re-join on reconnection
             connection.onreconnected(joinGroup);
         }
     }, [connection, myAccountId]);
@@ -95,7 +92,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ token, userEmail, onLogout
             setLastId(result.id);
         } catch (err: any) {
             if (err.message.includes("Unauthorized")) {
-                onLogout();
+                logout();
             } else if (err.validationErrors) {
                 setErrors(err.validationErrors);
             } else {

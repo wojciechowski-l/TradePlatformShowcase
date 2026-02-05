@@ -1,43 +1,36 @@
-import { useState } from 'react';
 import { Container, Paper, CssBaseline } from '@mui/material';
 import { SignalRProvider } from './context/SignalRContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { Header } from './components/Layout/Header';
 import { AuthScreen } from './components/Auth/AuthScreen';
 import { Dashboard } from './components/Dashboard/Dashboard';
 
-function App() {
-  const [token, setToken] = useState<string | null>(null);
-  const [userEmail, setUserEmail] = useState<string>('');
-
-  const handleLoginSuccess = (accessToken: string, email: string) => {
-    setToken(accessToken);
-    setUserEmail(email);
-  };
-
-  const handleLogout = () => {
-    setToken(null);
-    setUserEmail('');
-  };
+const AppContent = () => {
+  const { token, isAuthenticated } = useAuth();
 
   return (
     <SignalRProvider token={token}>
       <CssBaseline />
-      <Header isAuthenticated={!!token} onLogout={handleLogout} />
+      <Header />
 
       <Container maxWidth="sm" sx={{ mt: 8 }}>
         <Paper elevation={3} sx={{ p: 4 }}>
-          {token ? (
-            <Dashboard 
-              token={token} 
-              userEmail={userEmail} 
-              onLogout={handleLogout} 
-            />
+          {isAuthenticated ? (
+            <Dashboard />
           ) : (
-            <AuthScreen onLoginSuccess={handleLoginSuccess} />
+            <AuthScreen />
           )}
         </Paper>
       </Container>
     </SignalRProvider>
+  );
+};
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 

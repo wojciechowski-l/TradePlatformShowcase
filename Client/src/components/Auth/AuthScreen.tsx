@@ -6,13 +6,11 @@ import {
 import { 
     Visibility, VisibilityOff, LockOutlined as LockIcon 
 } from '@mui/icons-material';
+import { useAuth } from '../../context/AuthContext';
 import { loginUser, registerUser } from '../../services/api';
 
-interface AuthScreenProps {
-    onLoginSuccess: (token: string, email: string) => void;
-}
-
-export const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
+export const AuthScreen: React.FC = () => {
+    const { login } = useAuth();
     const [isLoginMode, setIsLoginMode] = useState(true);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -28,7 +26,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
         try {
             if (isLoginMode) {
                 const result = await loginUser({ email, password });
-                onLoginSuccess(result.accessToken, email);
+                login(result.accessToken, email);
             } else {
                 await registerUser({ email, password });
                 alert("Registration Successful! Please log in.");
