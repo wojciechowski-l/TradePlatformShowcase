@@ -6,12 +6,11 @@ using System.Text;
 using System.Text.Json;
 using Testcontainers.MsSql;
 using Testcontainers.RabbitMq;
+using TradePlatform.Core.Constants;
+using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
 using TradePlatform.Infrastructure.Data;
 using TradePlatform.Infrastructure.Messaging;
-using TradePlatform.Worker;
-using TradePlatform.Core.Constants;
-using Xunit;
 
 namespace TradePlatform.Tests.Worker
 {
@@ -20,7 +19,6 @@ namespace TradePlatform.Tests.Worker
         private readonly MsSqlContainer _dbContainer = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build();
         private readonly RabbitMqContainer _mqContainer = new RabbitMqBuilder("rabbitmq:3.13-management").Build();
 
-        // Polish: Centralized Test Configuration
         private const int MaxPolls = 20;
         private const int PollDelayMs = 500;
 
@@ -49,7 +47,6 @@ namespace TradePlatform.Tests.Worker
             return new TradeContext(options);
         }
 
-        // Polish: Centralized Connection Factory Logic
         private ConnectionFactory CreateTestConnectionFactory()
         {
             return new ConnectionFactory { Uri = new Uri(_mqContainer.GetConnectionString()) };
@@ -58,30 +55,24 @@ namespace TradePlatform.Tests.Worker
         [Fact]
         public async Task Worker_Should_ConsumeMessage_And_MarkTransactionAsProcessed()
         {
-            await RunWorkerTestAsync(async (channel, transactionId) =>
-            {
-                await PublishMessageAsync(channel, transactionId);
-            });
+            await RunWorkerTestAsync(PublishMessageAsync);
         }
 
         [Fact]
         public async Task Worker_Should_Handle_Duplicate_Messages_Gracefully()
         {
-            await RunWorkerTestAsync(async (channel, transactionId) =>
+            await RunWorkerTestAsync(async (channel, transaction) =>
             {
-                // 1. Publish the SAME message TWICE
-                await PublishMessageAsync(channel, transactionId);
-                await PublishMessageAsync(channel, transactionId);
+                await PublishMessageAsync(channel, transaction);
+                await PublishMessageAsync(channel, transaction);
             });
         }
 
         [Fact]
         public async Task Worker_Should_Reject_Malformatted_Message_To_DLQ()
         {
-            // 1. Publish "Poison" message (Invalid JSON)
             var poisonMessage = "This is not a GUID";
 
-            // Polish: Use helper
             var factory = CreateTestConnectionFactory();
             using var connection = await factory.CreateConnectionAsync();
             using var channel = await connection.CreateChannelAsync();
@@ -93,7 +84,6 @@ namespace TradePlatform.Tests.Worker
                 mandatory: false,
                 body: body);
 
-            // 2. Start Worker
             var services = new ServiceCollection();
             services.AddDbContext<TradeContext>(opts => opts.UseSqlServer(_dbContainer.GetConnectionString()));
             services.AddSingleton<IRabbitMQConnection>(new RabbitMQConnection(_mqContainer.GetConnectionString()));
@@ -104,10 +94,8 @@ namespace TradePlatform.Tests.Worker
             {
                 var worker = await StartWorkerAsync(sp);
 
-                // 3. Poll DLQ for the rejected message
                 BasicGetResult? result = null;
 
-                // Polish: Use constants
                 for (int i = 0; i < MaxPolls; i++)
                 {
                     await Task.Delay(PollDelayMs);
@@ -117,7 +105,6 @@ namespace TradePlatform.Tests.Worker
 
                 await worker.StopAsync(CancellationToken.None);
 
-                // 4. Assert
                 Assert.NotNull(result);
                 var deadBody = Encoding.UTF8.GetString(result.Body.ToArray());
                 Assert.Equal(poisonMessage, deadBody);
@@ -128,35 +115,33 @@ namespace TradePlatform.Tests.Worker
             }
         }
 
-        private async Task RunWorkerTestAsync(Func<IChannel, Guid, Task> publishAction)
+        private async Task RunWorkerTestAsync(Func<IChannel, TransactionRecord, Task> publishAction)
         {
             var transactionId = Guid.NewGuid();
 
-            // 1. Seed
+            var txRecord = new TransactionRecord
+            {
+                Id = transactionId,
+                Status = TransactionStatus.Pending,
+                SourceAccountId = "A",
+                TargetAccountId = "B",
+                Amount = 100,
+                Currency = "USD",
+                CreatedAtUtc = DateTime.UtcNow
+            };
+
             using (var seedContext = CreateContext())
             {
-                seedContext.Transactions.Add(new TransactionRecord
-                {
-                    Id = transactionId,
-                    Status = TransactionStatus.Pending,
-                    SourceAccountId = "A",
-                    TargetAccountId = "B",
-                    Amount = 100,
-                    Currency = "USD",
-                    CreatedAtUtc = DateTime.UtcNow
-                });
+                seedContext.Transactions.Add(txRecord);
                 await seedContext.SaveChangesAsync();
             }
 
-            // 2. Publish
-            // Polish: Use helper
             var factory = CreateTestConnectionFactory();
             using var connection = await factory.CreateConnectionAsync();
             using var channel = await connection.CreateChannelAsync();
 
-            await publishAction(channel, transactionId);
+            await publishAction(channel, txRecord);
 
-            // 3. Start Worker
             var services = new ServiceCollection();
             services.AddDbContext<TradeContext>(opts => opts.UseSqlServer(_dbContainer.GetConnectionString()));
             services.AddSingleton<IRabbitMQConnection>(new RabbitMQConnection(_mqContainer.GetConnectionString()));
@@ -167,10 +152,8 @@ namespace TradePlatform.Tests.Worker
             {
                 var worker = await StartWorkerAsync(sp);
 
-                // 4. Assert with Polling
                 bool processed = false;
 
-                // Polish: Use constants
                 for (int i = 0; i < MaxPolls; i++)
                 {
                     await Task.Delay(PollDelayMs);
@@ -205,9 +188,18 @@ namespace TradePlatform.Tests.Worker
             return worker;
         }
 
-        private static async Task PublishMessageAsync(IChannel channel, Guid id)
+        private static async Task PublishMessageAsync(IChannel channel, TransactionRecord tx)
         {
-            var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(id));
+            var evt = new TransactionCreatedEvent(
+                tx.Id,
+                tx.SourceAccountId,
+                tx.TargetAccountId,
+                tx.Amount,
+                tx.Currency
+            );
+
+            var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(evt));
+
             await channel.BasicPublishAsync(
                 exchange: "",
                 routingKey: MessagingConstants.OrdersQueue,
