@@ -17,7 +17,7 @@ namespace TradePlatform.Api.Controllers
         {
             var result = await _transactionService.CreateTransactionAsync(request);
 
-            return Accepted(new { id = result.TransactionId, status = result.Status });
+            return Accepted(result);
         }
     }
 }

@@ -1,9 +1,11 @@
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
 using Serilog.Events;
+using TradePlatform.Core.Constants;
 using TradePlatform.Infrastructure.Data;
 using TradePlatform.Infrastructure.Messaging;
-using TradePlatform.Worker;
+using TradePlatform.Worker.Consumers;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -19,10 +21,6 @@ Log.Logger = new LoggerConfiguration()
 builder.Logging.ClearProviders();
 builder.Logging.AddSerilog();
 
-var rabbitHost = builder.Configuration["RabbitMQ:Host"] ?? "localhost";
-builder.Services.AddSingleton<IRabbitMQConnection>(
-    _ => new RabbitMQConnection(rabbitHost));
-
 var connectionString =
     builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException(
@@ -30,14 +28,34 @@ var connectionString =
 builder.Services.AddDbContext<TradeContext>(options =>
     options.UseSqlServer(connectionString));
 
-builder.Services.AddHostedService<Worker>();
+builder.Services.AddMassTransit(x =>
+{
+    x.AddConsumer<TransactionCreatedConsumer>();
+
+    x.UsingRabbitMq((context, cfg) =>
+    {
+        var rabbitHost = builder.Configuration["RabbitMQ:Host"] ?? "localhost";
+        cfg.Host(rabbitHost, "/", h =>
+        {
+            h.Username("guest");
+            h.Password("guest");
+        });
+
+        cfg.ReceiveEndpoint(MessagingConstants.OrdersQueue, e =>
+        {
+            e.ConfigureConsumer<TransactionCreatedConsumer>(context);
+
+            e.UseMessageRetry(r => r.Interval(5, TimeSpan.FromSeconds(1)));
+        });
+    });
+});
+
+builder.Services.AddHostedService<OutboxPublisherWorker>();
+
 try
 {
     var host = builder.Build();
-
-    var mqConnection = host.Services.GetRequiredService<IRabbitMQConnection>();
-    await RabbitMQTopologySetup.InitializeAsync(mqConnection);
-    Log.Information("Worker starting up...");
+    Log.Information("Worker starting up with MassTransit...");
     host.Run();
 }
 catch (Exception ex)
