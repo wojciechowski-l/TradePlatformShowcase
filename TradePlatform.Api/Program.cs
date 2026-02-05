@@ -1,18 +1,17 @@
-using FluentValidation;
-using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Events;
-using SharpGrip.FluentValidation.AutoValidation.Mvc.Extensions;
+using TradePlatform.Api;
 using TradePlatform.Api.Hubs;
 using TradePlatform.Api.Infrastructure;
-using TradePlatform.Api.Infrastructure.Consumers;
-using TradePlatform.Core.Constants;
 using TradePlatform.Core.Entities;
 using TradePlatform.Core.Interfaces;
 using TradePlatform.Infrastructure.Data;
+using TradePlatform.Infrastructure.Messaging;
 using TradePlatform.Infrastructure.Services;
+using FluentValidation;
+using SharpGrip.FluentValidation.AutoValidation.Mvc.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,6 +31,10 @@ builder.Services.AddSignalR();
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 builder.Services.AddFluentValidationAutoValidation();
 
+var rabbitHost = builder.Configuration["RabbitMQ:Host"] ?? "localhost";
+builder.Services.AddSingleton<IRabbitMQConnection>(sp => new RabbitMQConnection(rabbitHost));
+builder.Services.AddScoped<IMessageProducer, RabbitMQProducer>();
+
 builder.Services.AddScoped<IAccountOwnershipService, DbAccountOwnershipService>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
 
@@ -45,26 +48,6 @@ builder.Services.AddDbContext<TradeContext>(options =>
 
 builder.Services.AddScoped<ITradeContext>(provider => provider.GetRequiredService<TradeContext>());
 
-builder.Services.AddMassTransit(x =>
-{
-    x.AddConsumer<NotificationConsumer>();
-
-    x.UsingRabbitMq((context, cfg) =>
-    {
-        var rabbitHost = builder.Configuration["RabbitMQ:Host"] ?? "localhost";
-        cfg.Host(rabbitHost, "/", h =>
-        {
-            h.Username("guest");
-            h.Password("guest");
-        });
-
-        cfg.ReceiveEndpoint(MessagingConstants.NotificationsQueue, e =>
-        {
-            e.ConfigureConsumer<NotificationConsumer>(context);
-        });
-    });
-});
-
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontends", policy =>
@@ -75,6 +58,10 @@ builder.Services.AddCors(options =>
               .AllowCredentials();
     });
 });
+
+builder.Services.AddHostedService<InfrastructureInitializer>();
+builder.Services.AddHostedService<OutboxPublisherWorker>();
+builder.Services.AddHostedService<NotificationWorker>();
 
 var app = builder.Build();
 
@@ -120,6 +107,7 @@ app.Use(async (context, next) =>
 
     await next();
 });
+
 
 app.UseAuthentication();
 app.UseAuthorization();

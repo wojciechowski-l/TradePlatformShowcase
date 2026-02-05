@@ -1,12 +1,12 @@
-﻿using MassTransit;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
-using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
+using TradePlatform.Core.Interfaces;
 using TradePlatform.Infrastructure.Data;
 
 namespace TradePlatform.Infrastructure.Messaging
@@ -14,13 +14,9 @@ namespace TradePlatform.Infrastructure.Messaging
     public partial class OutboxPublisherWorker(
         IServiceScopeFactory scopeFactory,
         ILogger<OutboxPublisherWorker> logger,
-        IPublishEndpoint publishEndpoint,
         IConfiguration configuration
     ) : BackgroundService
     {
-        private readonly ILogger<OutboxPublisherWorker> _logger = logger;
-        private readonly IPublishEndpoint _publishEndpoint = publishEndpoint;
-
         private const int MaxAttempts = 5;
         private const int BatchSize = 50;
 
@@ -60,31 +56,27 @@ namespace TradePlatform.Infrastructure.Messaging
                 {
                     using var scope = scopeFactory.CreateScope();
                     var db = scope.ServiceProvider.GetRequiredService<TradeContext>();
+                    var producer = scope.ServiceProvider.GetRequiredService<IMessageProducer>();
 
                     var sweeperCutoff = DateTime.UtcNow.Subtract(_stuckThreshold);
+
                     var rescuedCount = await db.Database.ExecuteSqlRawAsync(
                         SweeperQuery,
-                        [new Microsoft.Data.SqlClient.SqlParameter("@cutoff", sweeperCutoff)],
-                        stoppingToken);
+                        [new SqlParameter("@cutoff", sweeperCutoff)],
+                        cancellationToken: stoppingToken);
 
                     if (rescuedCount > 0) LogSweeperRescued(rescuedCount);
 
                     var messages = await db.OutboxMessages
-                        .FromSqlRaw(ReservationQuery, new Microsoft.Data.SqlClient.SqlParameter("@batchSize", BatchSize))
+                        .FromSqlRaw(ReservationQuery, new SqlParameter("@batchSize", BatchSize))
                         .ToListAsync(stoppingToken);
 
                     foreach (var message in messages)
                     {
                         try
                         {
-                            var eventPayload = JsonSerializer.Deserialize<TransactionCreatedEvent>(message.Payload);
-
-                            if (eventPayload != null)
-                            {
-                                await _publishEndpoint.Publish(eventPayload, context => {
-                                    context.MessageId = message.Id;
-                                }, stoppingToken);
-                            }
+                            var id = JsonSerializer.Deserialize<Guid>(message.Payload);
+                            await producer.SendMessageAsync(id);
 
                             message.Status = OutboxStatus.Processed;
                             message.ProcessedAtUtc = DateTime.UtcNow;
