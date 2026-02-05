@@ -36,7 +36,6 @@ namespace TradePlatform.Tests.Unit
         [Fact]
         public async Task CreateTransactionAsync_Should_Create_Transaction_And_Publish_Event()
         {
-            // Arrange
             var mockContext = CreateMockContext(out var transactionsDbSetMock, out _);
             var mockBus = new Mock<IMessageBus>();
 
@@ -50,10 +49,8 @@ namespace TradePlatform.Tests.Unit
                 Currency = "USD"
             };
 
-            // Act
             var result = await service.CreateTransactionAsync(request);
 
-            // Assert
             Assert.NotNull(result);
             Assert.Equal(TransactionStatus.Pending, result.Status);
 
@@ -65,8 +62,6 @@ namespace TradePlatform.Tests.Unit
                 Times.Once
             );
 
-            // Verify Message Published to Wolverine
-            // Removed CancellationToken argument to match the signature
             mockBus.Verify(
                 m => m.PublishAsync(
                     It.Is<TransactionCreatedEvent>(e =>
@@ -77,14 +72,12 @@ namespace TradePlatform.Tests.Unit
                 Times.Once
             );
 
-            // 3. Verify Changes Saved
             mockContext.Verify(c => c.SaveChangesAsync(default), Times.Once);
         }
 
         [Fact]
         public async Task CreateTransactionAsync_Should_Rollback_On_Error()
         {
-            // Arrange
             var mockContext = CreateMockContext(out _, out _);
             var mockBus = new Mock<IMessageBus>();
 
@@ -107,9 +100,6 @@ namespace TradePlatform.Tests.Unit
                 async () => await service.CreateTransactionAsync(request)
             );
 
-            // Verify message was attempted
-            // Note: We use It.IsAny<TransactionCreatedEvent> because PublishAsync is generic <T> 
-            // and the service calls it with that specific type.
             mockBus.Verify(
                 m => m.PublishAsync(
                     It.IsAny<TransactionCreatedEvent>(),

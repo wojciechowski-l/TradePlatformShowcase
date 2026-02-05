@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using Serilog;
 using Serilog.Events;
 using TradePlatform.Core.Constants;
-using TradePlatform.Core.DTOs;
 using TradePlatform.Infrastructure.Data;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
@@ -30,13 +29,10 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<TradeContext>(options =>
     options.UseSqlServer(connectionString));
 
-// SIMPLIFIED WOLVERINE CONFIG
 builder.Services.AddWolverine(opts =>
 {
-    // Persistence (Required for DurableInbox)
     opts.PersistMessagesWithSqlServer(connectionString, "wolverine");
 
-    // Transport
     opts.UseRabbitMq(new Uri($"amqp://guest:guest@{rabbitHost}:5672"))
         .AutoProvision();
 
@@ -52,12 +48,9 @@ builder.Services.AddWolverine(opts =>
              .ToRabbitExchange(MessagingConstants.NotificationsExchange, exchange =>
              {
                  exchange.ExchangeType = ExchangeType.Fanout;
-                 // Optional: Durable to ensure SignalR gets it even if restart happens
                  exchange.IsDurable = true;
              });
     });
-    // Removed: DisableConventionalDiscovery()
-    // Removed: Manual IncludeType<Handler>()
 });
 
 try

@@ -11,8 +11,6 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Testcontainers.MsSql;
 using TradePlatform.Core.Constants;
-
-// Removed: Testcontainers.RabbitMq (Not needed as Program.cs skips it in Test mode)
 using TradePlatform.Core.DTOs;
 using TradePlatform.Infrastructure.Data;
 
@@ -22,9 +20,6 @@ public class ApiIntegrationTests : IAsyncLifetime
 {
     private readonly MsSqlContainer _dbContainer =
         new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build();
-
-    // OPTIMIZATION: Removed RabbitMQ Container. 
-    // Since Program.cs skips Wolverine config in "Test" env, we don't need this running.
 
     public async ValueTask InitializeAsync()
     {
@@ -42,7 +37,6 @@ public class ApiIntegrationTests : IAsyncLifetime
         return new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
-                // This triggers the "if (Test) return" logic in Program.cs
                 builder.UseEnvironment("Test");
 
                 builder.ConfigureTestServices(services =>
@@ -125,7 +119,6 @@ public class ApiIntegrationTests : IAsyncLifetime
     }
 }
 
-// Handler remains the same...
 public sealed class TestAuthHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,

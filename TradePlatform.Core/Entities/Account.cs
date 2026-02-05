@@ -11,7 +11,6 @@ namespace TradePlatform.Core.Entities
         [Required]
         public string OwnerId { get; set; } = string.Empty;
 
-        // Navigation property
         public ApplicationUser? Owner { get; set; }
 
         [Required]

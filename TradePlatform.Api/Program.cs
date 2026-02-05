@@ -1,8 +1,9 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using FluentValidation;
+using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Events;
-using TradePlatform.Api;
+using SharpGrip.FluentValidation.AutoValidation.Mvc.Extensions;
 using TradePlatform.Api.Hubs;
 using TradePlatform.Api.Infrastructure;
 using TradePlatform.Core.Constants;
@@ -10,8 +11,6 @@ using TradePlatform.Core.Entities;
 using TradePlatform.Core.Interfaces;
 using TradePlatform.Infrastructure.Data;
 using TradePlatform.Infrastructure.Services;
-using FluentValidation;
-using SharpGrip.FluentValidation.AutoValidation.Mvc.Extensions;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
 using Wolverine.RabbitMQ;
@@ -65,14 +64,11 @@ builder.Services.AddCors(options =>
     });
 });
 
-// SIMPLIFIED WOLVERINE CONFIG
 builder.Host.UseWolverine(opts =>
 {
-    // Standard EF Core Integration
     opts.UseEntityFrameworkCoreTransactions();
     opts.Policies.UseDurableOutboxOnAllSendingEndpoints();
 
-    // Transport Configuration (Skipped in Tests)
     if (!builder.Environment.IsEnvironment("Test"))
     {
         var rabbitHost = builder.Configuration["RabbitMQ:Host"] ?? "localhost";
@@ -95,7 +91,6 @@ builder.Host.UseWolverine(opts =>
         opts.ListenToRabbitQueue(MessagingConstants.NotificationsQueue);
     }
 });
-// Note: Removed ExtensionDiscovery.ManualOnly argument
 
 var app = builder.Build();
 
