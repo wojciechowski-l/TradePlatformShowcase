@@ -74,7 +74,13 @@ The Worker handles the "At-Least-Once" delivery guarantee by ensuring processing
 -   **Benefit**: Processing the same message twice (e.g., due to a network retry) never results in corrupt data or double spending.
     
 
-### 3. Fault Tolerance
+### 3. Performance Optimizations
+
+-   **Fat Event Pattern**: The `OutboxMessage` payload contains the full event state (`TransactionCreatedEvent`), allowing the Worker to process notifications without querying the database (Read Reduction).
+    
+-   **Zero-Latency Authorization**: SignalR connections validate account ownership using **JWT Claims** (`urn:tradeplatform:accountid`) embedded in the access token, eliminating database round-trips on socket connection.
+
+### 4. Fault Tolerance
 
 -   **Dead Letter Queues (DLQ)**: "Poison" messages (malformed data) are rejected and moved to a DLQ for manual inspection, preventing consumer loops.
     
@@ -168,7 +174,7 @@ docker-compose up -d --build
 
 ```
 
--   Frontend: http://localhost:3001
+-   Frontend: http://localhost:3000
     
 -   API Documentation (Scalar): http://localhost:8080/scalar/v1
     
