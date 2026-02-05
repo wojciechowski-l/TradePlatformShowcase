@@ -1,19 +1,18 @@
-﻿using System.Text.Json;
-using TradePlatform.Core.Constants;
+﻿using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
 using TradePlatform.Core.Interfaces;
+using Wolverine;
 
 namespace TradePlatform.Infrastructure.Services
 {
-    public class TransactionService(ITradeContext context) : ITransactionService
+    public class TransactionService(ITradeContext context, IMessageBus bus) : ITransactionService
     {
         private readonly ITradeContext _context = context;
+        private readonly IMessageBus _bus = bus;
 
         public async Task<CreateTransactionResult> CreateTransactionAsync(TransactionDto request)
         {
-
-
             var transaction = new TransactionRecord
             {
                 Id = Guid.NewGuid(),
@@ -33,21 +32,11 @@ namespace TradePlatform.Infrastructure.Services
                 transaction.Currency
             );
 
-            var outboxMessage = new OutboxMessage
-            {
-                Id = Guid.NewGuid(),
-                Type = "TransactionCreated",
-                Payload = JsonSerializer.Serialize(eventPayload),
-                CreatedAtUtc = DateTime.UtcNow
-            };
-
-            using var dbTx = await _context.BeginTransactionAsync();
-
             _context.Transactions.Add(transaction);
-            _context.OutboxMessages.Add(outboxMessage);
+
+            await _bus.PublishAsync(eventPayload);
 
             await _context.SaveChangesAsync();
-            await dbTx.CommitAsync();
 
             return new CreateTransactionResult
             {

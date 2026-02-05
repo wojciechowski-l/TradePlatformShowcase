@@ -9,7 +9,6 @@ namespace TradePlatform.Infrastructure.Data
     public class TradeContext(DbContextOptions<TradeContext> options) : IdentityDbContext<ApplicationUser>(options), ITradeContext
     {
         public DbSet<TransactionRecord> Transactions { get; set; }
-        public DbSet<OutboxMessage> OutboxMessages { get; set; }
         public DbSet<Account> Accounts { get; set; }
 
         public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
@@ -26,19 +25,12 @@ namespace TradePlatform.Infrastructure.Data
 
             modelBuilder.Entity<TransactionRecord>()
                 .Property(t => t.Amount)
-                .HasPrecision(18, 2); // Important for money!
+                .HasPrecision(18, 2);
 
             modelBuilder.Entity<TransactionRecord>()
                 .Property(t => t.SourceAccountId)
                 .IsRequired()
                 .HasMaxLength(50);
-
-            modelBuilder.Entity<OutboxMessage>()
-                .HasKey(o => o.Id);
-
-            modelBuilder.Entity<OutboxMessage>()
-                .HasIndex(o => new { o.Status, o.CreatedAtUtc })
-                .IncludeProperties(o => new { o.LastAttemptAtUtc, o.AttemptCount });
 
             modelBuilder.Entity<Account>()
                 .HasKey(a => a.Id);

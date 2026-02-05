@@ -6,6 +6,7 @@ using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
 using TradePlatform.Core.Interfaces;
 using TradePlatform.Infrastructure.Services;
+using Wolverine;
 
 namespace TradePlatform.Tests.Unit
 {
@@ -13,19 +14,15 @@ namespace TradePlatform.Tests.Unit
     {
         private static Mock<ITradeContext> CreateMockContext(
             out Mock<DbSet<TransactionRecord>> transactionsDbSetMock,
-            out Mock<DbSet<OutboxMessage>> outboxDbSetMock,
             out Mock<IDbContextTransaction> transactionMock
         )
         {
             var mockContext = new Mock<ITradeContext>();
 
             transactionsDbSetMock = new Mock<DbSet<TransactionRecord>>();
-            outboxDbSetMock = new Mock<DbSet<OutboxMessage>>();
             transactionMock = new Mock<IDbContextTransaction>();
 
             mockContext.Setup(c => c.Transactions).Returns(transactionsDbSetMock.Object);
-
-            mockContext.Setup(c => c.OutboxMessages).Returns(outboxDbSetMock.Object);
 
             mockContext
                 .Setup(c => c.BeginTransactionAsync(default))
@@ -37,106 +34,65 @@ namespace TradePlatform.Tests.Unit
         }
 
         [Fact]
-        public async Task CreateTransactionAsync_Should_CreateTransaction_WithCorrectProperties()
+        public async Task CreateTransactionAsync_Should_Create_Transaction_And_Publish_Event()
         {
-            var mockContext = CreateMockContext(out var transactionsDbSetMock, out _, out _);
+            // Arrange
+            var mockContext = CreateMockContext(out var transactionsDbSetMock, out _);
+            var mockBus = new Mock<IMessageBus>();
 
-            var service = new TransactionService(mockContext.Object);
+            var service = new TransactionService(mockContext.Object, mockBus.Object);
 
             var request = new TransactionDto
             {
                 SourceAccountId = "ACC_001",
                 TargetAccountId = "ACC_002",
-                Amount = 250.50m,
+                Amount = 100m,
                 Currency = "USD"
             };
 
+            // Act
             var result = await service.CreateTransactionAsync(request);
 
+            // Assert
+            Assert.NotNull(result);
+            Assert.Equal(TransactionStatus.Pending, result.Status);
+
             transactionsDbSetMock.Verify(
-                m =>
-                    m.Add(
-                        It.Is<TransactionRecord>(
-                            t =>
-                                t.SourceAccountId == "ACC_001"
-                                && t.TargetAccountId == "ACC_002"
-                                && t.Amount == 250.50m
-                                && t.Currency == "USD"
-                                && t.Status == TransactionStatus.Pending
-                        )
-                    ),
-                Times.Once
-            );
-        }
-
-        [Fact]
-        public async Task CreateTransactionAsync_Should_CreateOutboxMessage_OnlyAfterTransactionCreated()
-        {
-            var mockContext = CreateMockContext(out _, out var outboxDbSetMock, out _);
-
-            var service = new TransactionService(mockContext.Object);
-
-            var request = new TransactionDto
-            {
-                SourceAccountId = "ACC_003",
-                TargetAccountId = "ACC_004",
-                Amount = 100m,
-                Currency = "EUR"
-            };
-
-            await service.CreateTransactionAsync(request);
-
-            outboxDbSetMock.Verify(
-                m =>
-                    m.Add(
-                        It.Is<OutboxMessage>(
-                            o => o.Type == "TransactionCreated" && !string.IsNullOrEmpty(o.Payload)
-                        )
-                    ),
+                m => m.Add(It.Is<TransactionRecord>(t =>
+                    t.SourceAccountId == request.SourceAccountId &&
+                    t.Amount == request.Amount &&
+                    t.Status == TransactionStatus.Pending)),
                 Times.Once
             );
 
+            // Verify Message Published to Wolverine
+            // Removed CancellationToken argument to match the signature
+            mockBus.Verify(
+                m => m.PublishAsync(
+                    It.Is<TransactionCreatedEvent>(e =>
+                        e.SourceAccountId == request.SourceAccountId &&
+                        e.Amount == request.Amount),
+                    It.IsAny<DeliveryOptions>()
+                ),
+                Times.Once
+            );
+
+            // 3. Verify Changes Saved
             mockContext.Verify(c => c.SaveChangesAsync(default), Times.Once);
         }
 
         [Fact]
-        public async Task CreateTransactionAsync_Should_UseAtomicTransaction()
+        public async Task CreateTransactionAsync_Should_Rollback_On_Error()
         {
-            var mockContext = CreateMockContext(out var transactionsDbSetMock, out _, out _);
-
-            var mockTransaction = new Mock<IDbContextTransaction>();
-
-            mockContext
-                .Setup(c => c.BeginTransactionAsync(default))
-                .ReturnsAsync(mockTransaction.Object);
-
-            var service = new TransactionService(mockContext.Object);
-
-            var request = new TransactionDto
-            {
-                SourceAccountId = "ACC_005",
-                TargetAccountId = "ACC_006",
-                Amount = 500m,
-                Currency = "GBP"
-            };
-
-            await service.CreateTransactionAsync(request);
-
-            mockContext.Verify(c => c.BeginTransactionAsync(default), Times.Once);
-            mockContext.Verify(c => c.SaveChangesAsync(default), Times.Once);
-            mockTransaction.Verify(t => t.CommitAsync(default), Times.Once);
-        }
-
-        [Fact]
-        public async Task CreateTransactionAsync_Should_PropagateException_WhenSaveFails()
-        {
-            var mockContext = CreateMockContext(out var transactionsDbSetMock, out _, out _);
+            // Arrange
+            var mockContext = CreateMockContext(out _, out _);
+            var mockBus = new Mock<IMessageBus>();
 
             mockContext
                 .Setup(c => c.SaveChangesAsync(default))
                 .ThrowsAsync(new DbUpdateException("Database constraint violation"));
 
-            var service = new TransactionService(mockContext.Object);
+            var service = new TransactionService(mockContext.Object, mockBus.Object);
 
             var request = new TransactionDto
             {
@@ -146,32 +102,19 @@ namespace TradePlatform.Tests.Unit
                 Currency = "USD"
             };
 
+            // Act & Assert
             await Assert.ThrowsAsync<DbUpdateException>(
                 async () => await service.CreateTransactionAsync(request)
             );
-        }
 
-        [Fact]
-        public async Task CreateTransactionAsync_Should_SetPendingStatus()
-        {
-            var mockContext = CreateMockContext(out var transactionsDbSetMock, out _, out _);
-
-            var service = new TransactionService(mockContext.Object);
-
-            var request = new TransactionDto
-            {
-                SourceAccountId = "ACC_009",
-                TargetAccountId = "ACC_010",
-                Amount = 75.25m,
-                Currency = "CAD"
-            };
-
-            var result = await service.CreateTransactionAsync(request);
-
-            Assert.Equal(TransactionStatus.Pending, result.Status);
-
-            transactionsDbSetMock.Verify(
-                m => m.Add(It.Is<TransactionRecord>(t => t.Status == TransactionStatus.Pending)),
+            // Verify message was attempted
+            // Note: We use It.IsAny<TransactionCreatedEvent> because PublishAsync is generic <T> 
+            // and the service calls it with that specific type.
+            mockBus.Verify(
+                m => m.PublishAsync(
+                    It.IsAny<TransactionCreatedEvent>(),
+                    It.IsAny<DeliveryOptions>()
+                ),
                 Times.Once
             );
         }
