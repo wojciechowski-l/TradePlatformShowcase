@@ -148,7 +148,7 @@ docker-compose up -d --build
     
 -   **Frontend**: React 19, TypeScript, Vite, Material UI
     
--   **Messaging**: RabbitMQ (MassTransit style patterns implemented manually)
+-   **Messaging**: Wolverine (Transactional Outbox, Durable Inbox) over RabbitMQ
     
 -   **Database**: Microsoft SQL Server 2022
     
