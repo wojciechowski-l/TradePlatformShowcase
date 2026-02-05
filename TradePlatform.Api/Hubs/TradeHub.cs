@@ -24,10 +24,9 @@ namespace TradePlatform.Api.Hubs
         {
             if (string.IsNullOrWhiteSpace(accountId)) return;
 
-            var userId = (Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value) ?? throw new HubException("Unauthorized: User ID not found.");
-
-            if (!await ownershipService.IsOwnerAsync(userId, accountId, Context.ConnectionAborted))
+            if (Context.User == null || !await ownershipService.IsOwnerAsync(Context.User, accountId, Context.ConnectionAborted))
             {
+                var userId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "Unknown";
                 throw new HubException($"Unauthorized: User {userId} does not own account {accountId}.");
             }
 

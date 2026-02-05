@@ -39,7 +39,8 @@ builder.Services.AddScoped<IAccountOwnershipService, DbAccountOwnershipService>(
 builder.Services.AddScoped<ITransactionService, TransactionService>();
 
 builder.Services.AddIdentityApiEndpoints<ApplicationUser>()
-    .AddEntityFrameworkStores<TradeContext>();
+    .AddEntityFrameworkStores<TradeContext>()
+    .AddClaimsPrincipalFactory<TradeUserClaimsPrincipalFactory>();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<TradeContext>(options =>
