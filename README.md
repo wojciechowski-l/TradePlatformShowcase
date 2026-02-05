@@ -8,105 +8,62 @@ This repository is a technology showcase rather than a production-ready trading 
 
 It exists to demonstrate:
 
--   **Distributed Messaging Reliability**: Implementing the Transactional Outbox pattern and Dead Letter Queues (DLQ).
-    
--   **Idempotency**: Handling duplicate message delivery in distributed background processing.
-    
--   **Infrastructure-Backed Testing**: Using Testcontainers for integration tests and ephemeral Docker environments for E2E validation.
-    
--   **Observability**: Integration of Prometheus, Grafana, and structured logging (Seq).
-    
-
-Features are added opportunistically to support these architectural goals; the project is not considered "feature complete" regarding business logic (e.g., complex auth flows or comprehensive UI).
-
-## How to Approach This Repository
-
-This project is a technology showcase and a discussion platform.
-
-- Some patterns are **deliberate trade-offs**, including minor optimizations, unusual timestamp handling, and explicit background service control.  
-- Some choices may differ from typical “production best practices” — that’s intentional.  
-- The purpose is to **stimulate reasoning and discussion**, not dictate a single correct solution.  
-
-When reviewing, consider asking “why” about the design, trade-offs, and edge-case handling — that’s exactly the conversation this repo is built for.
+- **Distributed Messaging Reliability**: Implementing the Transactional Outbox pattern and Dead Letter Queues (DLQ) via **Wolverine**.
+- **Idempotency**: Handling duplicate message delivery in distributed background processing.
+- **Infrastructure-Backed Testing**: Using Testcontainers for integration tests and ephemeral Docker environments for E2E validation.
+- **Observability**: Integration of Prometheus, Grafana, and structured logging (Seq).
 
 ## Key Code Highlights
 
 If you are reviewing this repository, the most significant architectural patterns are located in the following files:
 
--   **TradePlatform.Infrastructure/Messaging/OutboxPublisherWorker.cs**
-    
-    -   Implements the Transactional Outbox pattern, ensuring atomic database writes are eventually consistent with the message broker.
-        
--   **TradePlatform.Worker/Worker.cs**
-    
-    -   Contains the idempotent message handling logic (`ProcessTransactionAsync`) and manual Dead Letter Queue routing.
-        
--   **TradePlatform.Infrastructure/Messaging/RabbitMQTopologySetup.cs**
-    
-    -   Defines the RabbitMQ topology, including Exchange-to-Queue bindings and DLQ configuration.
-        
--   **run-e2e-tests.ps1**
-    
-    -   An orchestration script that manages the full test lifecycle: running backend integration tests, spinning up the Docker environment, and executing Cypress E2E tests.
-        
+- **TradePlatform.Api/Program.cs**
+  - Configures Wolverine for the Transactional Outbox and RabbitMQ transport.
+  - Demonstrates **Environment Isolation**: Explicitly disables external transports during Integration Tests to prevent deadlocks.
 
-----------
+- **TradePlatform.Worker/Program.cs**
+  - Implements **Convention-Based Routing**: Automatically routes all messages from the `TradePlatform.Core.DTOs` namespace to the `Notifications` exchange, eliminating manual boilerplate.
+  - Configures SQL Server-backed Message Persistence (`DurableInbox`) to ensure idempotency.
+
+- **TradePlatform.Tests/Integration/ApiIntegrationTests.cs**
+  - Demonstrates **Slice Testing**: Uses Testcontainers for SQL Server but mocks the Message Broker. This makes tests 3x faster and less brittle than spinning up a full topology.
+
+---
 
 ## Key Features & Patterns
 
 ### 1. Reliable Messaging (Transactional Outbox)
 
-Instead of publishing to RabbitMQ directly (which risks data inconsistency if the broker is down), the API saves a `TransactionRecord` and an `OutboxMessage` to SQL Server in a **single atomic transaction**.
+We utilize **Wolverine** to abstract the Transactional Outbox pattern.
 
--   **Benefit**: Guarantees zero lost messages ("At-Least-Once Delivery").
-    
--   **Concurrency**: Uses SQL Server `UPDLOCK` and `READPAST` hints to ensure safe, concurrent processing without race conditions.
+- **Mechanism**: When the API creates a transaction, Wolverine automatically persists the outgoing event to a hidden `wolverine_outbox` table within the same SQL transaction.
+- **Benefit**: Guarantees zero lost messages ("At-Least-Once Delivery").
 
--   **Recovery**: A background "Sweeper" process detects messages stuck in `InFlight` status (exceeding a configured timeout) and automatically resets them to `Pending`.
-    
+### 2. Scalable Routing
 
-### 2. Idempotent Consumer
+Instead of manually registering every message type, the Worker uses a routing policy:
 
-The Worker handles the "At-Least-Once" delivery guarantee by ensuring processing is idempotent.
+```csharp
+opts.Publish(rules => rules
+    .MessagesFromNamespace("TradePlatform.Core.DTOs")
+    .ToRabbitExchange(MessagingConstants.NotificationsExchange));
+```
 
--   **Logic**: Uses atomic SQL updates (`UPDATE ... WHERE Status = 'Pending'`) to lock and process transactions.
-    
--   **Benefit**: Processing the same message twice (e.g., due to a network retry) never results in corrupt data or double spending.
-    
+This ensures that as the system grows, new notification types work automatically.
 
-### 3. Performance Optimizations
+### 3. Fault Tolerance
+- **Dead Letter Queues (DLQ)**: Poison messages are automatically routed to RabbitMQ DLQs by Wolverine after exhaustively retrying.
 
--   **Fat Event Pattern**: The `OutboxMessage` payload contains the full event state (`TransactionCreatedEvent`), allowing the Worker to process notifications without querying the database (Read Reduction).
-    
--   **Zero-Latency Authorization**: SignalR connections validate account ownership using **JWT Claims** (`urn:tradeplatform:accountid`) embedded in the access token, eliminating database round-trips on socket connection.
+- **Resilience**: Configured with durable policies to ensure messages survive broker restarts.
 
-### 4. Fault Tolerance
-
--   **Dead Letter Queues (DLQ)**: "Poison" messages (malformed data) are rejected and moved to a DLQ for manual inspection, preventing consumer loops.
-    
--   **Resilience**: The system uses RabbitMQ retries with exponential backoff and explicit retry headers.
-    
-
-----------
-
-## Architecture
-
+### 4. Architecture
 The solution follows a microservices-inspired architecture containerized via Docker Compose:
 
--   **Client (Frontend)**: React 19 + Vite application (Material UI) providing the trading dashboard.
-    
--   **TradePlatform.Api**: .NET 10 REST API. Acts as the write-model gateway, enforcing validation and persisting requests to the Outbox.
-    
--   **TradePlatform.Worker**: Background service that polls the Outbox, publishes to RabbitMQ, consumes messages, and processes trades.
-    
--   **Infrastructure**:
-    
-    -   **SQL Server**: Primary data store (Users, Transactions, Outbox).
-        
-    -   **RabbitMQ**: Asynchronous message broker.
-        
-    -   **Prometheus & Grafana**: Real-time metrics and dashboarding.
-        
+- **TradePlatform.Api**: .NET 10 REST API. Acts as the gateway, enforcing validation and persisting requests via Wolverine.
+
+- **TradePlatform.Worker**: .NET 10 Host. Consumes messages via Wolverine Handlers and processes trades.
+
+- **Infrastructure**: SQL Server 2022, RabbitMQ, Prometheus, Grafana, Seq.
 
 ----------
 
