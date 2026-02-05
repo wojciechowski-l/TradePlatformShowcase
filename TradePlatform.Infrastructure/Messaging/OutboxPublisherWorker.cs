@@ -1,9 +1,11 @@
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using TradePlatform.Core.Entities;
 using TradePlatform.Core.Interfaces;
 using TradePlatform.Infrastructure.Data;
 
@@ -17,8 +19,6 @@ namespace TradePlatform.Infrastructure.Messaging
     {
         private const int MaxAttempts = 5;
         private const int BatchSize = 50;
-        private const int LeaseOffsetYears = 100;
-        private static readonly DateTime SafetyCutoffDateUtc = new(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         private readonly TimeSpan _pollInterval = TimeSpan.FromSeconds(
             int.TryParse(configuration["Outbox:PollIntervalSeconds"], out var seconds) ? seconds : 2);
@@ -30,29 +30,22 @@ namespace TradePlatform.Infrastructure.Messaging
             WITH CTE AS (
                 SELECT TOP (@batchSize) *
                 FROM OutboxMessages WITH (UPDLOCK, READPAST)
-                WHERE ProcessedAtUtc IS NULL
-                  AND AttemptCount < @maxAttempts
-                ORDER BY CreatedAtUtc
+                WHERE Status = 0 -- Pending
             )
             UPDATE CTE
-            SET ProcessedAtUtc = DATEADD(year, -{LeaseOffsetYears}, GETUTCDATE())
-            OUTPUT inserted.Id, inserted.Type, inserted.Payload,
-                   inserted.CreatedAtUtc, inserted.ProcessedAtUtc,
-                   inserted.AttemptCount, inserted.LastError;
+            SET Status = 1, -- InFlight
+                LastAttemptAtUtc = GETUTCDATE(),
+                AttemptCount = AttemptCount + 1
+            OUTPUT inserted.*;
             """;
 
         private static readonly string SweeperQuery = $"""
             UPDATE OutboxMessages
-            SET ProcessedAtUtc = NULL,
-                AttemptCount = AttemptCount + 1,
-                LastError = CONCAT(
-                    'Rescued by sweeper. Was stuck for ',
-                    DATEDIFF(second, DATEADD(year, {LeaseOffsetYears}, ProcessedAtUtc), GETUTCDATE()),
-                    ' seconds.'
-                )
-            WHERE ProcessedAtUtc IS NOT NULL
-              AND ProcessedAtUtc < @cutoff
-              AND ProcessedAtUtc < '{SafetyCutoffDateUtc:yyyy-MM-dd}';
+            SET Status = 0, -- Reset to Pending
+                LastAttemptAtUtc = NULL,
+                LastError = 'Rescued by sweeper (Stuck)'
+            WHERE Status = 1 -- InFlight
+            AND LastAttemptAtUtc < @cutoff;
             """;
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -65,20 +58,17 @@ namespace TradePlatform.Infrastructure.Messaging
                     var db = scope.ServiceProvider.GetRequiredService<TradeContext>();
                     var producer = scope.ServiceProvider.GetRequiredService<IMessageProducer>();
 
-                    var lockTimeOrigin = DateTime.UtcNow.AddYears(-LeaseOffsetYears);
-                    var sweeperCutoff = lockTimeOrigin.Subtract(_stuckThreshold);
+                    var sweeperCutoff = DateTime.UtcNow.Subtract(_stuckThreshold);
 
                     var rescuedCount = await db.Database.ExecuteSqlRawAsync(
                         SweeperQuery,
-                        [new Microsoft.Data.SqlClient.SqlParameter("@cutoff", sweeperCutoff)],
+                        [new SqlParameter("@cutoff", sweeperCutoff)],
                         cancellationToken: stoppingToken);
 
                     if (rescuedCount > 0) LogSweeperRescued(rescuedCount);
 
                     var messages = await db.OutboxMessages
-                        .FromSqlRaw(ReservationQuery,
-                            new Microsoft.Data.SqlClient.SqlParameter("@batchSize", BatchSize),
-                            new Microsoft.Data.SqlClient.SqlParameter("@maxAttempts", MaxAttempts))
+                        .FromSqlRaw(ReservationQuery, new SqlParameter("@batchSize", BatchSize))
                         .ToListAsync(stoppingToken);
 
                     foreach (var message in messages)
@@ -87,6 +77,8 @@ namespace TradePlatform.Infrastructure.Messaging
                         {
                             var id = JsonSerializer.Deserialize<Guid>(message.Payload);
                             await producer.SendMessageAsync(id);
+
+                            message.Status = OutboxStatus.Processed;
                             message.ProcessedAtUtc = DateTime.UtcNow;
                         }
                         catch (Exception ex)
@@ -95,12 +87,12 @@ namespace TradePlatform.Infrastructure.Messaging
                             message.LastError = ex.Message;
                             if (message.AttemptCount >= MaxAttempts)
                             {
-                                message.ProcessedAtUtc = DateTime.UtcNow;
+                                message.Status = OutboxStatus.Failed;
                                 LogDeadLettered(ex, message.Id, MaxAttempts);
                             }
                             else
                             {
-                                message.ProcessedAtUtc = null;
+                                message.Status = OutboxStatus.Pending;
                                 LogPublishFailed(ex, message.Id, message.AttemptCount, MaxAttempts);
                             }
                         }

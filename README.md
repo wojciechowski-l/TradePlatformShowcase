@@ -1,4 +1,3 @@
-
 # Trade Platform Showcase
 
 A production-grade distributed trading platform designed to demonstrate **reliable** software architecture patterns. This project moves beyond "Happy Path" prototyping to handle real-world distributed system challenges like partial failures, message duplication, and concurrency.
@@ -51,7 +50,9 @@ Instead of publishing to RabbitMQ directly (which risks data inconsistency if th
 
 -   **Benefit**: Guarantees zero lost messages ("At-Least-Once Delivery").
     
--   **Recovery**: A background "Sweeper" process detects messages stuck in `InFlight` status (using a "Time Travel" sentinel logic) and automatically recovers them.
+-   **Concurrency**: Uses SQL Server `UPDLOCK` and `READPAST` hints to ensure safe, concurrent processing without race conditions.
+
+-   **Recovery**: A background "Sweeper" process detects messages stuck in `InFlight` status (exceeding a configured timeout) and automatically resets them to `Pending`.
     
 
 ### 2. Idempotent Consumer
@@ -107,7 +108,7 @@ Located in `TradePlatform.Tests`, these tests run **before** the full environmen
     
     -   Verifies atomic database writes.
         
-    -   Tests the "Sweeper" recovery logic (simulating 100-year-old stuck locks).
+    -   Tests the "Sweeper" recovery logic (simulating expired locks via timeout manipulation).
         
     -   Verifies Worker idempotency and DLQ routing.
         
@@ -134,7 +135,6 @@ Located in `Client/cypress`, these tests run against the fully deployed Docker C
 -   **.NET 10 SDK** (For local development/migrations)
     
 -   **PowerShell** (For automation scripts)
-    
 
 ### 1. Run the Full Test Suite (Recommended)
 
@@ -160,11 +160,13 @@ docker-compose up -d --build
 
 -   Frontend: http://localhost:3001
     
--   API Swagger: http://localhost:8081/swagger
+-   API Documentation (Scalar): http://localhost:8080/scalar/v1
     
 -   RabbitMQ Admin: http://localhost:15672 (guest/guest)
     
--   Grafana: http://localhost:3000
+-   Grafana: http://localhost:3100
+    
+-   Seq (Logs): http://localhost:5341
     
 
 ### Tech Stack

@@ -37,7 +37,8 @@ namespace TradePlatform.Infrastructure.Data
                 .HasKey(o => o.Id);
 
             modelBuilder.Entity<OutboxMessage>()
-                .HasIndex(o => new { o.ProcessedAtUtc, o.AttemptCount, o.CreatedAtUtc });
+                .HasIndex(o => new { o.Status, o.CreatedAtUtc })
+                .IncludeProperties(o => new { o.LastAttemptAtUtc, o.AttemptCount });
 
             modelBuilder.Entity<Account>()
                 .HasKey(a => a.Id);

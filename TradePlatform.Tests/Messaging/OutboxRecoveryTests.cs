@@ -2,8 +2,11 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
+using System.Text.Json;
 using Testcontainers.MsSql;
 using TradePlatform.Core.Entities;
+using TradePlatform.Core.Interfaces;
 using TradePlatform.Infrastructure.Data;
 using TradePlatform.Infrastructure.Messaging;
 
@@ -43,17 +46,21 @@ namespace TradePlatform.Tests.Messaging
                 {
                     Id = Guid.NewGuid(),
                     Type = "TransactionCreated",
-                    Payload = "{}",
+
+                    Payload = JsonSerializer.Serialize(Guid.NewGuid()),
+
                     CreatedAtUtc = DateTime.UtcNow.AddMinutes(-20),
-                    ProcessedAtUtc = DateTime.UtcNow.AddYears(-100).AddMinutes(-10),
-                    AttemptCount = 0
+
+                    Status = OutboxStatus.InFlight,
+                    LastAttemptAtUtc = DateTime.UtcNow.AddMinutes(-20),
+                    ProcessedAtUtc = null,
+                    AttemptCount = 1
                 };
                 seedContext.OutboxMessages.Add(stuckMessage);
                 await seedContext.SaveChangesAsync();
             }
 
             var services = new ServiceCollection();
-
             var dbOptions = new DbContextOptionsBuilder<TradeContext>()
                 .UseSqlServer(_dbContainer.GetConnectionString())
                 .Options;
@@ -62,7 +69,12 @@ namespace TradePlatform.Tests.Messaging
             services.AddScoped<TradeContext>();
             services.AddLogging();
 
-            services.AddScoped(_ => new Moq.Mock<TradePlatform.Core.Interfaces.IMessageProducer>().Object);
+            var mockProducer = new Mock<IMessageProducer>();
+            mockProducer
+                .Setup(x => x.SendMessageAsync(It.IsAny<Guid>()))
+                .Returns(Task.CompletedTask);
+
+            services.AddScoped(_ => mockProducer.Object);
 
             var sp = services.BuildServiceProvider();
 
@@ -82,22 +94,23 @@ namespace TradePlatform.Tests.Messaging
 
                 await worker.StartAsync(CancellationToken.None);
 
-                bool rescued = false;
+                bool rescuedAndProcessed = false;
                 for (int i = 0; i < 20; i++)
                 {
                     await Task.Delay(500);
                     using var checkContext = CreateContext();
                     var msg = await checkContext.OutboxMessages.SingleAsync();
 
-                    if (msg.ProcessedAtUtc == null)
+                    if (msg.Status == OutboxStatus.Processed)
                     {
-                        rescued = true;
+                        rescuedAndProcessed = true;
                         break;
                     }
                 }
 
                 await worker.StopAsync(CancellationToken.None);
-                Assert.True(rescued, "The Sweeper failed to rescue the stuck message within the timeout.");
+
+                Assert.True(rescuedAndProcessed, "The Sweeper failed to rescue and process the stuck message within the timeout.");
             }
             finally
             {
