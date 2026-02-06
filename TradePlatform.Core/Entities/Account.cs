@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using TradePlatform.Core.ValueObjects;
 
 namespace TradePlatform.Core.Entities
 {
@@ -13,9 +14,7 @@ namespace TradePlatform.Core.Entities
 
         public ApplicationUser? Owner { get; set; }
 
-        [Required]
-        [MaxLength(3)]
-        public string Currency { get; set; } = "USD";
+        public required Currency Currency { get; set; }
 
         // Optional: Track balance if needed later
         // public decimal Balance { get; set; }

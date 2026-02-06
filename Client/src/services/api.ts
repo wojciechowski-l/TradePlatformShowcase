@@ -24,9 +24,15 @@ export interface TransactionRequest {
     currency: string;
 }
 
+export enum TransactionStatus {
+    Pending = 0,
+    Processed = 1,
+    Failed = 2
+}
+
 export interface TransactionResponse {
     id: string;
-    status: string;
+    status: TransactionStatus;
 }
 
 export interface ValidationError {
@@ -53,36 +59,23 @@ export const loginUser = async (creds: LoginRequest): Promise<LoginResponse> => 
     const response = await fetch(`${API_BASE_URL}/api/auth/login?useCookies=false`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(creds)
+        body: JSON.stringify(creds),
     });
 
-    if (!response.ok) {
-        throw new Error('Login failed. Check credentials.');
-    }
+    if (!response.ok) throw new Error('Login failed');
     return response.json();
 };
 
-export const registerUser = async (creds: RegisterRequest) => {
+export const registerUser = async (creds: RegisterRequest): Promise<void> => {
     const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(creds)
+        body: JSON.stringify(creds),
     });
 
     if (!response.ok) {
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.indexOf("application/json") !== -1) {
-            const err = await response.json();
-            let errorMessage = 'Registration failed';
-            if (err.errors) {
-                errorMessage = Object.values(err.errors).flat().join(', ');
-            }
-            throw new Error(errorMessage);
-        } else {
-            const text = await response.text();
-            console.error("API Error:", text);
-            throw new Error("Server Error: Check API console logs.");
-        }
+        const errorText = await response.text();
+        throw new Error(errorText || 'Registration failed');
     }
 };
 

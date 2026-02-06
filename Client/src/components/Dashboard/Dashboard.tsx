@@ -7,7 +7,8 @@ import {
     submitTransaction, 
     getMyAccount, 
     provisionAccount, 
-    ApiValidationError 
+    ApiValidationError,
+    TransactionStatus
 } from '../../services/api';
 import { TransactionForm, TransactionFormData } from './TransactionForm';
 
@@ -83,7 +84,8 @@ export const Dashboard: React.FC = () => {
     useEffect(() => {
         if (connection) {
             connection.on("ReceiveStatusUpdate", (update: any) => {
-                setNotification(`Transaction ${update.transactionId} is now ${update.status}!`);
+                const statusLabel = TransactionStatus[update.status] || update.status;
+                setNotification(`Transaction ${update.transactionId} is now ${statusLabel}!`);
             });
         }
         return () => { connection?.off("ReceiveStatusUpdate"); };

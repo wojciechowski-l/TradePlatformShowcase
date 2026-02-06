@@ -1,4 +1,5 @@
 ﻿using TradePlatform.Core.Constants;
+using TradePlatform.Core.ValueObjects;
 
 namespace TradePlatform.Core.Entities
 {
@@ -6,10 +7,11 @@ namespace TradePlatform.Core.Entities
     {
         public Guid Id { get; set; } = Guid.NewGuid();
         public string SourceAccountId { get; set; } = string.Empty;
+        public virtual Account? SourceAccount { get; set; }
         public string TargetAccountId { get; set; } = string.Empty;
         public decimal Amount { get; set; }
-        public string Currency { get; set; } = "USD";
+        public required Currency Currency { get; set; }
         public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
-        public string Status { get; set; } = TransactionStatus.Pending; // Pending, Processed, Failed
+        public TransactionStatus Status { get; set; } = TransactionStatus.Pending;
     }
 }

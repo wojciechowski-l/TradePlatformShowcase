@@ -2,6 +2,7 @@
 using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
 using TradePlatform.Core.Interfaces;
+using TradePlatform.Core.ValueObjects;
 using Wolverine;
 
 namespace TradePlatform.Infrastructure.Services
@@ -19,7 +20,7 @@ namespace TradePlatform.Infrastructure.Services
                 SourceAccountId = request.SourceAccountId,
                 TargetAccountId = request.TargetAccountId,
                 Amount = request.Amount,
-                Currency = request.Currency,
+                Currency = Currency.FromCode(request.Currency),
                 Status = TransactionStatus.Pending,
                 CreatedAtUtc = DateTime.UtcNow
             };
@@ -29,7 +30,7 @@ namespace TradePlatform.Infrastructure.Services
                 transaction.SourceAccountId,
                 transaction.TargetAccountId,
                 transaction.Amount,
-                transaction.Currency
+                transaction.Currency.Code
             );
 
             _context.Transactions.Add(transaction);

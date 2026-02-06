@@ -4,6 +4,7 @@ using Moq;
 using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
+using TradePlatform.Core.ValueObjects;
 using TradePlatform.Infrastructure.Data;
 using TradePlatform.Worker.Handlers;
 using Wolverine;
@@ -28,7 +29,7 @@ namespace TradePlatform.Tests.Worker
                 SourceAccountId = "SRC",
                 TargetAccountId = "TGT",
                 Amount = 50,
-                Currency = "USD",
+                Currency = Currency.FromCode("USD"),
                 Status = TransactionStatus.Pending
             });
 
@@ -73,6 +74,7 @@ namespace TradePlatform.Tests.Worker
             context.Transactions.Add(new TransactionRecord
             {
                 Id = txId,
+                Currency = Currency.FromCode("USD"),
                 Status = TransactionStatus.Processed
             });
 

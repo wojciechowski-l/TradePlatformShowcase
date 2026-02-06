@@ -13,10 +13,10 @@
         public const string RetryHeader = "x-retry-count";
     }
 
-    public static class TransactionStatus
+    public enum TransactionStatus
     {
-        public const string Pending = "Pending";
-        public const string Processed = "Processed";
-        public const string Failed = "Failed";
+        Pending,
+        Processed,
+        Failed
     }
 }

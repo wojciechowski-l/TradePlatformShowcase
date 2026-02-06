@@ -8,7 +8,7 @@ describe('Trade Platform E2E Flow', () => {
 
     cy.contains('button', /need an account\? register/i).click();
 
-    cy.contains('label', 'Email').parent().find('input').type(email); // Note: "Email Address" might have become just "Email" in AuthScreen.tsx, using partial match 'Email' is safer
+    cy.contains('label', 'Email').parent().find('input').type(email);
     cy.contains('label', 'Password').parent().find('input').type(password);
 
     cy.contains('button', 'Register').click();
@@ -26,7 +26,11 @@ describe('Trade Platform E2E Flow', () => {
 
     cy.contains(`Welcome, ${email}`).should('be.visible');
 
-    cy.contains('label', 'Source Account').parent().find('input').clear().type('CYPRESS-SRC');
+    // FIX: Use .invoke('val') to get the string, then .should('match', regex)
+    cy.contains('label', 'Source Account').parent().find('input')
+      .invoke('val')
+      .should('match', /ACC-\d+/);
+
     cy.contains('label', 'Target Account').parent().find('input').clear().type('CYPRESS-TGT');
     
     cy.contains('label', 'Amount').parent().find('input').clear().type('500');

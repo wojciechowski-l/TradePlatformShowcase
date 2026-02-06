@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using TradePlatform.Core.Entities;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using TradePlatform.Core.Interfaces;
+using TradePlatform.Core.ValueObjects;
 
 namespace TradePlatform.Infrastructure.Data
 {
@@ -32,6 +33,21 @@ namespace TradePlatform.Infrastructure.Data
                 .IsRequired()
                 .HasMaxLength(50);
 
+            modelBuilder.Entity<TransactionRecord>()
+                .HasOne(t => t.SourceAccount)
+                .WithMany()
+                .HasForeignKey(t => t.SourceAccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<TransactionRecord>()
+                .Property(t => t.Status)
+                .HasConversion<string>();
+
+            modelBuilder.Entity<TransactionRecord>()
+                .Property(t => t.Currency)
+                .HasConversion(c => c.Code, s => Currency.FromCode(s))
+                .HasMaxLength(3);
+
             modelBuilder.Entity<Account>()
                 .HasKey(a => a.Id);
 
@@ -43,6 +59,11 @@ namespace TradePlatform.Infrastructure.Data
 
             modelBuilder.Entity<Account>()
                 .HasIndex(a => new { a.OwnerId, a.Id });
+
+            modelBuilder.Entity<Account>()
+                .Property(a => a.Currency)
+                .HasConversion(c => c.Code, s => Currency.FromCode(s))
+                .HasMaxLength(3);
         }
     }
 }

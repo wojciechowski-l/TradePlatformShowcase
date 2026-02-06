@@ -1,8 +1,10 @@
-﻿namespace TradePlatform.Core.DTOs
+﻿using TradePlatform.Core.Constants;
+
+namespace TradePlatform.Core.DTOs
 {
     public class CreateTransactionResult
     {
         public Guid TransactionId { get; set; }
-        public string Status { get; set; } = string.Empty;
+        public TransactionStatus Status { get; set; }
     }
 }

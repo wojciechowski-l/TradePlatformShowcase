@@ -12,6 +12,8 @@ using System.Text.Encodings.Web;
 using Testcontainers.MsSql;
 using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
+using TradePlatform.Core.Entities;
+using TradePlatform.Core.ValueObjects;
 using TradePlatform.Infrastructure.Data;
 
 namespace TradePlatform.Tests.Integration;
@@ -61,6 +63,38 @@ public class ApiIntegrationTests : IAsyncLifetime
     public async Task CreateTransaction_Should_Return_Accepted()
     {
         await using var factory = CreateFactory();
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<TradeContext>();
+
+            var user = new ApplicationUser
+            {
+                Id = "test-user-id",
+                UserName = "IntegrationTestUser",
+                Email = "test@example.com",
+                FullName = "Test User"
+            };
+            context.Users.Add(user);
+
+            var acc1 = new Account
+            {
+                Id = "ACC_1",
+                OwnerId = user.Id,
+                Currency = Currency.FromCode("USD")
+            };
+
+            var acc2 = new Account
+            {
+                Id = "ACC_2",
+                OwnerId = user.Id,
+                Currency = Currency.FromCode("USD")
+            };
+
+            context.Accounts.AddRange(acc1, acc2);
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
         var client = factory.CreateClient();
 
         client.DefaultRequestHeaders.Authorization =

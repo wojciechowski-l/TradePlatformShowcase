@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using TradePlatform.Core.Entities;
+using TradePlatform.Core.ValueObjects;
 using TradePlatform.Infrastructure.Data;
 
 namespace TradePlatform.Api.Controllers
@@ -41,7 +42,7 @@ namespace TradePlatform.Api.Controllers
             {
                 Id = $"ACC-{new Random().Next(10000, 99999)}",
                 OwnerId = userId!,
-                Currency = "USD",
+                Currency = Currency.FromCode("USD"),
             };
 
             context.Accounts.Add(newAccount);

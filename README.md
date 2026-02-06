@@ -1,6 +1,6 @@
 # Trade Platform Showcase
 
-A production-grade distributed trading platform designed to demonstrate **reliable** software architecture patterns. This project moves beyond "Happy Path" prototyping to handle real-world distributed system challenges like partial failures, message duplication, and concurrency.
+A production-grade distributed trading platform designed to demonstrate **reliable** software architecture patterns. This project moves beyond "Happy Path" prototyping to handle real-world challenges like data inconsistency, partial failures, message duplication, and concurrency.
 
 ## Project Intent
 
@@ -64,6 +64,12 @@ The solution follows a microservices-inspired architecture containerized via Doc
 - **TradePlatform.Worker**: .NET 10 Host. Consumes messages via Wolverine Handlers and processes trades.
 
 - **Infrastructure**: SQL Server 2022, RabbitMQ, Prometheus, Grafana, Seq.
+
+### 5. Domain Integrity & Type Safety
+Beyond infrastructure reliability, the core domain enforces strict correctness:
+- **Strongly Typed Domain**: Utilizes **Value Objects** (e.g., `Currency`) and **Enums** instead of primitive strings to prevent logical errors.
+- **Referential Integrity**: Database schema strictly enforces Foreign Key relationships between Transactions and Accounts, preventing orphaned records.
+- **Defensive Coding**: Entities use `required` properties and validation to ensure no object exists in an invalid state.
 
 ----------
 
