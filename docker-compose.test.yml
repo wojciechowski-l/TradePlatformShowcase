@@ -53,6 +53,24 @@ services:
         aliases:
           - trade-api
 
+  test-worker:
+    build:
+      context: .
+      dockerfile: TradePlatform.Worker/Dockerfile
+    container_name: trade-worker-e2e
+    environment:
+      - ConnectionStrings__DefaultConnection=Server=test-db;Database=TradePlatformDb;User Id=sa;Password=Password123!;TrustServerCertificate=True;
+      - RabbitMQ__Host=trade-test-rabbit
+      - RabbitMQ__Port=5672
+      - Seq__ServerUrl=http://trade-test-seq
+    depends_on:
+      test-db:
+        condition: service_healthy
+      test-rabbit:
+        condition: service_healthy
+      test-seq:
+        condition: service_started
+
   test-client:
     build:
       context: ./Client

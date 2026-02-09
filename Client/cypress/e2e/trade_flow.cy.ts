@@ -26,7 +26,6 @@ describe('Trade Platform E2E Flow', () => {
 
     cy.contains(`Welcome, ${email}`).should('be.visible');
 
-    // FIX: Use .invoke('val') to get the string, then .should('match', regex)
     cy.contains('label', 'Source Account').parent().find('input')
       .invoke('val')
       .should('match', /ACC-\d+/);
@@ -40,5 +39,7 @@ describe('Trade Platform E2E Flow', () => {
     cy.contains('Success!').should('be.visible');
 
     cy.contains(/Transaction ID:/i).should('be.visible');
+
+    cy.contains('Processed', { timeout: 15000 }).should('be.visible');
   });
 });

@@ -18,7 +18,7 @@ using TradePlatform.Infrastructure.Data;
 
 namespace TradePlatform.Tests.Integration;
 
-public class ApiIntegrationTests : IAsyncLifetime
+public class TradePlatformTestFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private readonly MsSqlContainer _dbContainer =
         new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build();
@@ -28,66 +28,72 @@ public class ApiIntegrationTests : IAsyncLifetime
         await _dbContainer.StartAsync(TestContext.Current.CancellationToken);
     }
 
-    public async ValueTask DisposeAsync()
+    public override async ValueTask DisposeAsync()
     {
         await _dbContainer.DisposeAsync();
+        await base.DisposeAsync();
         GC.SuppressFinalize(this);
     }
 
-    private WebApplicationFactory<Program> CreateFactory()
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        return new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(builder =>
-            {
-                builder.UseEnvironment("Test");
+        builder.UseEnvironment("Test");
 
-                builder.ConfigureTestServices(services =>
-                {
-                    var descriptor = services.SingleOrDefault(
-                        d => d.ServiceType == typeof(DbContextOptions<TradeContext>));
+        builder.ConfigureTestServices(services =>
+        {
+            var descriptor = services.SingleOrDefault(
+                d => d.ServiceType == typeof(DbContextOptions<TradeContext>));
 
-                    if (descriptor != null)
-                        services.Remove(descriptor);
+            if (descriptor != null)
+                services.Remove(descriptor);
 
-                    services.AddDbContext<TradeContext>(options =>
-                        options.UseSqlServer(_dbContainer.GetConnectionString()));
+            services.AddDbContext<TradeContext>(options =>
+                options.UseSqlServer(_dbContainer.GetConnectionString()));
 
-                    services.AddAuthentication("TestScheme")
-                        .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
-                            "TestScheme", _ => { });
-                });
-            });
+            services.AddAuthentication("TestScheme")
+                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
+                    "TestScheme", _ => { });
+        });
     }
+}
+
+public class ApiIntegrationTests(TradePlatformTestFactory factory) : IClassFixture<TradePlatformTestFactory>
+{
+    private readonly TradePlatformTestFactory _factory = factory;
 
     [Fact]
     public async Task CreateTransaction_Should_Return_Accepted()
     {
-        await using var factory = CreateFactory();
+        var userId = Guid.NewGuid().ToString();
+        var sourceAccId = $"ACC_{Guid.NewGuid()}";
+        var targetAccId = $"ACC_{Guid.NewGuid()}";
 
-        using (var scope = factory.Services.CreateScope())
+        using (var scope = _factory.Services.CreateScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<TradeContext>();
 
+            await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+
             var user = new ApplicationUser
             {
-                Id = "test-user-id",
-                UserName = "IntegrationTestUser",
-                Email = "test@example.com",
+                Id = userId,
+                UserName = $"IntegrationTestUser_{Guid.NewGuid()}",
+                Email = $"test_{Guid.NewGuid()}@example.com",
                 FullName = "Test User"
             };
             context.Users.Add(user);
 
             var acc1 = new Account
             {
-                Id = "ACC_1",
-                OwnerId = user.Id,
+                Id = sourceAccId,
+                OwnerId = userId,
                 Currency = Currency.FromCode("USD")
             };
 
             var acc2 = new Account
             {
-                Id = "ACC_2",
-                OwnerId = user.Id,
+                Id = targetAccId,
+                OwnerId = userId,
                 Currency = Currency.FromCode("USD")
             };
 
@@ -95,15 +101,15 @@ public class ApiIntegrationTests : IAsyncLifetime
             await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
-        var client = factory.CreateClient();
+        var client = _factory.CreateClient();
 
         client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("TestScheme");
 
         var request = new TransactionDto
         {
-            SourceAccountId = "ACC_1",
-            TargetAccountId = "ACC_2",
+            SourceAccountId = sourceAccId,
+            TargetAccountId = targetAccId,
             Amount = 100,
             Currency = "USD"
         };
@@ -125,8 +131,7 @@ public class ApiIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task CreateTransaction_Should_Validate_Inputs()
     {
-        await using var factory = CreateFactory();
-        var client = factory.CreateClient();
+        var client = _factory.CreateClient();
 
         client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("TestScheme");

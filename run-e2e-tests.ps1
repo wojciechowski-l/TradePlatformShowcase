@@ -50,17 +50,6 @@ try {
         exit 1
     }
 
-    Write-Information "Applying database migrations"
-    Set-Location TradePlatform.Api
-
-    $connectionString = "Server=127.0.0.1,1435;Database=TradePlatformDb;User Id=sa;Password=Password123!;TrustServerCertificate=True;"
-    dotnet ef database update --connection "$connectionString"
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Database migration failed"
-        exit 1
-    }
-
     Write-Information "Running Cypress tests"
     Set-Location "$rootPath/Client"
     $env:CYPRESS_baseUrl = "http://localhost:3001"
@@ -84,7 +73,10 @@ finally {
     Set-Location $rootPath
 
     if ($LASTEXITCODE -ne 0) {
+        Write-Information "--- API LOGS ---"
         docker logs trade-api-e2e --tail 50
+        Write-Information "--- WORKER LOGS ---"
+        docker logs trade-worker-e2e --tail 50
     }
 
     docker compose -f docker-compose.test.yml down
