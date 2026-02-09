@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
+using Rebus.Bus;
 using Testcontainers.MsSql;
 using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
@@ -8,7 +9,6 @@ using TradePlatform.Core.Entities;
 using TradePlatform.Core.ValueObjects;
 using TradePlatform.Infrastructure.Data;
 using TradePlatform.Worker.Handlers;
-using Wolverine;
 
 namespace TradePlatform.Tests.Worker
 {
@@ -19,7 +19,6 @@ namespace TradePlatform.Tests.Worker
         [Fact]
         public async Task Handle_Should_Process_Transaction_And_Publish_Notification()
         {
-
             using var context = _fixture.CreateContext();
             await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
 
@@ -65,12 +64,13 @@ namespace TradePlatform.Tests.Worker
 
             await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-            var mockBus = new Mock<IMessageBus>();
+            var mockBus = new Mock<IBus>();
             var mockLogger = new Mock<ILogger<TransactionCreatedHandler>>();
 
             var evt = new TransactionCreatedEvent(txId, srcAccId, tgtAccId, 50, "USD");
 
-            await TransactionCreatedHandler.Handle(evt, context, mockBus.Object, mockLogger.Object);
+            var handler = new TransactionCreatedHandler(context, mockBus.Object, mockLogger.Object);
+            await handler.Handle(evt);
 
             context.ChangeTracker.Clear();
             var updatedTx = await context.Transactions.FindAsync(
@@ -81,13 +81,14 @@ namespace TradePlatform.Tests.Worker
             Assert.NotNull(updatedTx);
             Assert.Equal(TransactionStatus.Processed, updatedTx.Status);
 
+            // FIX: Changed Publish to Send
             mockBus.Verify(
-                m => m.PublishAsync(
+                m => m.Send(
                     It.Is<TransactionUpdateDto>(u =>
                         u.TransactionId == txId &&
                         u.Status == TransactionStatus.Processed &&
                         u.AccountId == srcAccId),
-                    It.IsAny<DeliveryOptions>()
+                    It.IsAny<IDictionary<string, string>>()
                 ),
                 Times.Once
             );
@@ -141,13 +142,15 @@ namespace TradePlatform.Tests.Worker
 
             await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-            var mockBus = new Mock<IMessageBus>();
+            var mockBus = new Mock<IBus>();
             var mockLogger = new Mock<ILogger<TransactionCreatedHandler>>();
             var evt = new TransactionCreatedEvent(txId, srcAccId, tgtAccId, 50, "USD");
 
-            await TransactionCreatedHandler.Handle(evt, context, mockBus.Object, mockLogger.Object);
+            var handler = new TransactionCreatedHandler(context, mockBus.Object, mockLogger.Object);
+            await handler.Handle(evt);
 
-            mockBus.Verify(m => m.PublishAsync(It.IsAny<object>(), It.IsAny<DeliveryOptions>()), Times.Never);
+            // FIX: Changed Publish to Send
+            mockBus.Verify(m => m.Send(It.IsAny<object>(), It.IsAny<IDictionary<string, string>>()), Times.Never);
         }
     }
 

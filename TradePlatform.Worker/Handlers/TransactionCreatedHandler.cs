@@ -1,18 +1,16 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Rebus.Bus;
+using Rebus.Handlers;
 using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
 using TradePlatform.Infrastructure.Data;
-using Wolverine;
 
 namespace TradePlatform.Worker.Handlers;
 
-public partial class TransactionCreatedHandler
+public partial class TransactionCreatedHandler(TradeContext dbContext, IBus bus, ILogger<TransactionCreatedHandler> logger)
+    : IHandleMessages<TransactionCreatedEvent>
 {
-    public static async Task Handle(
-        TransactionCreatedEvent evt,
-        TradeContext dbContext,
-        IMessageBus bus,
-        ILogger<TransactionCreatedHandler> logger)
+    public async Task Handle(TransactionCreatedEvent evt)
     {
         LogProcessing(logger, evt.TransactionId);
 
@@ -43,7 +41,8 @@ public partial class TransactionCreatedHandler
             UpdatedAtUtc = DateTime.UtcNow
         };
 
-        await bus.PublishAsync(update);
+        // Changed to Send to route specifically to the API's notification queue
+        await bus.Send(update);
 
         LogSuccess(logger, evt.TransactionId);
     }

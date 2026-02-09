@@ -13,7 +13,7 @@
     </PackageReference>
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.2" />
     <PackageReference Include="RabbitMQ.Client" Version="7.2.0" />
-    <PackageReference Include="WolverineFx" Version="5.14.0" />
+    <PackageReference Include="Rebus" Version="8.9.0" />
   </ItemGroup>
 
   <PropertyGroup>

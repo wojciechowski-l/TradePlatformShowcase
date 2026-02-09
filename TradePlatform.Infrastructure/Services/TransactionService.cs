@@ -1,16 +1,16 @@
-﻿using TradePlatform.Core.Constants;
+﻿using Rebus.Bus;
+using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
 using TradePlatform.Core.Interfaces;
 using TradePlatform.Core.ValueObjects;
-using Wolverine;
 
 namespace TradePlatform.Infrastructure.Services
 {
-    public class TransactionService(ITradeContext context, IMessageBus bus) : ITransactionService
+    public class TransactionService(ITradeContext context, IBus bus) : ITransactionService
     {
         private readonly ITradeContext _context = context;
-        private readonly IMessageBus _bus = bus;
+        private readonly IBus _bus = bus;
 
         public async Task<CreateTransactionResult> CreateTransactionAsync(TransactionDto request)
         {
@@ -35,9 +35,9 @@ namespace TradePlatform.Infrastructure.Services
 
             _context.Transactions.Add(transaction);
 
-            await _bus.PublishAsync(eventPayload);
-
             await _context.SaveChangesAsync();
+
+            await _bus.Send(eventPayload);
 
             return new CreateTransactionResult
             {

@@ -1,6 +1,6 @@
 # Trade Platform Showcase
 
-A production-grade distributed trading platform designed to demonstrate **reliable** software architecture patterns. This project moves beyond "Happy Path" prototyping to handle real-world challenges like data inconsistency, partial failures, message duplication, and concurrency.
+A production-grade distributed trading platform designed to demonstrate **reliable** software architecture patterns. This project moves beyond "Happy Path" prototyping to handle real-world challenges like distributed messaging, concurrency, and environment isolation.
 
 ## Project Intent
 
@@ -8,9 +8,9 @@ This repository is a technology showcase rather than a production-ready trading 
 
 It exists to demonstrate:
 
-- **Distributed Messaging Reliability**: Implementing the Transactional Outbox pattern and Dead Letter Queues (DLQ) via **Wolverine**.
-- **Idempotency**: Handling duplicate message delivery in distributed background processing.
-- **Infrastructure-Backed Testing**: Using Testcontainers for integration tests and ephemeral Docker environments for E2E validation.
+- **Distributed Messaging**: Implementing reliable message transport using **Rebus** over RabbitMQ.
+- **Explicit Routing**: Moving away from "magic" conventions to explicit, Type-Based routing for clarity.
+- **Infrastructure-Backed Testing**: Using Testcontainers for integration tests (SQL Server & RabbitMQ) and ephemeral Docker environments for E2E validation.
 - **Observability**: Integration of Prometheus, Grafana, and structured logging (Seq).
 
 ## Key Code Highlights
@@ -18,89 +18,103 @@ It exists to demonstrate:
 If you are reviewing this repository, the most significant architectural patterns are located in the following files:
 
 - **TradePlatform.Api/Program.cs**
-  - Configures Wolverine for the Transactional Outbox and RabbitMQ transport.
-  - Demonstrates **Environment Isolation**: Explicitly disables external transports during Integration Tests to prevent deadlocks.
+  - Configures **Rebus** for message transport.
+  - Demonstrates explicit queue mapping via `TypeBased` routing.
 
 - **TradePlatform.Worker/Program.cs**
-  - Implements **Convention-Based Routing**: Automatically routes all messages from the `TradePlatform.Core.DTOs` namespace to the `Notifications` exchange, eliminating manual boilerplate.
-  - Configures SQL Server-backed Message Persistence (`DurableInbox`) to ensure idempotency.
+  - Configures the Rebus worker to consume from the `trade-orders` queue.
+  - Sets up retry policies (Simple Retry Strategy) to handle transient failures.
 
 - **TradePlatform.Tests/Integration/ApiIntegrationTests.cs**
-  - Demonstrates **Slice Testing**: Uses Testcontainers for SQL Server but mocks the Message Broker. This makes tests 3x faster and less brittle than spinning up a full topology.
+  - Demonstrates **Full Topology Testing**: Uses Testcontainers to spin up both SQL Server and RabbitMQ.
+  - Shows how to manually manipulate infrastructure (declaring queues via `RabbitMQ.Client`) to simulate microservice dependencies during testing.
 
 ---
 
 ## Key Features & Patterns
 
-### 1. Reliable Messaging (Transactional Outbox)
+### 1. Reliable Messaging (Rebus)
 
-We utilize **Wolverine** to abstract the Transactional Outbox pattern.
+We utilize **Rebus** to abstract the messaging infrastructure.
 
-- **Mechanism**: When the API creates a transaction, Wolverine automatically persists the outgoing event to a hidden `wolverine_outbox` table within the same SQL transaction.
-- **Benefit**: Guarantees zero lost messages ("At-Least-Once Delivery").
+- **Mechanism**: The API sends commands (`TransactionCreatedEvent`) via `bus.Send()`, which are routed to specific queues.
+- **Benefit**: Decouples the API from the Worker service, allowing for independent scaling and maintenance.
 
-### 2. Scalable Routing
+### 2. Explicit Routing
 
-Instead of manually registering every message type, the Worker uses a routing policy:
+Instead of relying on opaque conventions, the application uses explicit Type-Based routing:
 
 ```csharp
-opts.Publish(rules => rules
-    .MessagesFromNamespace("TradePlatform.Core.DTOs")
-    .ToRabbitExchange(MessagingConstants.NotificationsExchange));
+.Routing(r => r.TypeBased().Map<TransactionCreatedEvent>(MessagingConstants.OrdersQueue))
 ```
 
-This ensures that as the system grows, new notification types work automatically.
+This ensures that developers can easily trace where a specific message type is being delivered.
 
-### 3. Fault Tolerance
-- **Dead Letter Queues (DLQ)**: Poison messages are automatically routed to RabbitMQ DLQs by Wolverine after exhaustively retrying.
+## 3. Fault Tolerance
 
-- **Resilience**: Configured with durable policies to ensure messages survive broker restarts.
+**Retries:** Configured with a `SimpleRetryStrategy` (3 attempts) to handle transient errors before giving up.
 
-### 4. Architecture
-The solution follows a microservices-inspired architecture containerized via Docker Compose:
+**Resilience:** RabbitMQ transport is configured with durable queues to ensure messages survive broker restarts.
 
-- **TradePlatform.Api**: .NET 10 REST API. Acts as the gateway, enforcing validation and persisting requests via Wolverine.
+---
 
-- **TradePlatform.Worker**: .NET 10 Host. Consumes messages via Wolverine Handlers and processes trades.
+## 4. Architecture
 
-- **Infrastructure**: SQL Server 2022, RabbitMQ, Prometheus, Grafana, Seq.
+The solution follows a microservices-inspired architecture containerized via **Docker Compose**:
 
-### 5. Domain Integrity & Type Safety
+- **TradePlatform.Api:**  
+  .NET 10 REST API. Acts as the gateway, enforcing validation and dispatching commands via Rebus.
+
+- **TradePlatform.Worker:**  
+  .NET 10 Host. Consumes messages via Rebus Handlers (`IHandleMessages<T>`) and processes trades.
+
+- **Infrastructure:**  
+  SQL Server 2022, RabbitMQ, Prometheus, Grafana, Seq.
+
+---
+
+## 5. Domain Integrity & Type Safety
+
 Beyond infrastructure reliability, the core domain enforces strict correctness:
-- **Strongly Typed Domain**: Utilizes **Value Objects** (e.g., `Currency`) and **Enums** instead of primitive strings to prevent logical errors.
-- **Referential Integrity**: Database schema strictly enforces Foreign Key relationships between Transactions and Accounts, preventing orphaned records.
-- **Defensive Coding**: Entities use `required` properties and validation to ensure no object exists in an invalid state.
 
-----------
+- **Strongly Typed Domain:**  
+  Utilizes Value Objects (e.g., `Currency`) and Enums instead of primitive strings to prevent logical errors.
 
-## Testing Strategy
+- **Referential Integrity:**  
+  Database schema strictly enforces Foreign Key relationships between Transactions and Accounts.
 
-We employ a "Testing Pyramid" approach to ensure reliability without flaky mocks.
+- **Defensive Coding:**  
+  Entities use required properties and validation to ensure no object exists in an invalid state.
 
-### 1. Backend Integration Tests (Fail Fast)
+---
 
-Located in `TradePlatform.Tests`, these tests run **before** the full environment spins up.
+# Testing Strategy
 
--   **Tech**: xUnit + **Testcontainers** (MsSql & RabbitMq).
-    
--   **Scope**:
-    
-    -   Verifies atomic database writes.
-        
-    -   Tests the "Sweeper" recovery logic (simulating expired locks via timeout manipulation).
-        
-    -   Verifies Worker idempotency and DLQ routing.
-        
-    -   **No Mocks**: Tests run against real, throwaway container instances.
-        
+We employ a **"Testing Pyramid"** approach to ensure reliability without flaky mocks.
 
-### 2. End-to-End (E2E) Tests
+## 1. Backend Integration Tests
+
+Located in `TradePlatform.Tests`, these tests run before the full environment spins up.
+
+**Tech:** xUnit + Testcontainers (MsSql & RabbitMQ)
+
+**Scope:**
+
+- Verifies atomic database writes.
+- Tests the messaging pipeline by simulating queue infrastructure.
+- **No Mocks:** Tests run against real, throwaway container instances for maximum confidence.
+
+---
+
+## 2. End-to-End (E2E) Tests
 
 Located in `Client/cypress`, these tests run against the fully deployed Docker Compose environment.
 
--   **Tech**: Cypress.
-    
--   **Scope**: Simulates a real user logging in, placing a trade, and verifying the UI updates after the background worker completes the job.
+**Tech:** Cypress
+
+**Scope:**  
+Simulates a real user logging in, placing a trade, and verifying the UI updates after the background worker completes the job via SignalR.
+
     
 
 ----------
@@ -154,7 +168,7 @@ docker-compose up -d --build
     
 -   **Frontend**: React 19, TypeScript, Vite, Material UI
     
--   **Messaging**: Wolverine (Transactional Outbox, Durable Inbox) over RabbitMQ
+-   **Messaging**: Rebus over RabbitMQ
     
 -   **Database**: Microsoft SQL Server 2022
     

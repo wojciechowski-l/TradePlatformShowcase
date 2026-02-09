@@ -1,20 +1,21 @@
 ﻿using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Rebus.Config;
+using Rebus.Routing.TypeBased;
+using Rebus.Retry.Simple;
 using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Events;
 using SharpGrip.FluentValidation.AutoValidation.Mvc.Extensions;
+using TradePlatform.Api.Handlers;
 using TradePlatform.Api.Hubs;
 using TradePlatform.Api.Infrastructure;
 using TradePlatform.Core.Constants;
+using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
 using TradePlatform.Core.Interfaces;
 using TradePlatform.Infrastructure.Data;
 using TradePlatform.Infrastructure.Services;
-using Wolverine;
-using Wolverine.EntityFrameworkCore;
-using Wolverine.RabbitMQ;
-using ExchangeType = Wolverine.RabbitMQ.ExchangeType;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -48,8 +49,11 @@ builder.Services.AddIdentityApiEndpoints<ApplicationUser>()
     .AddEntityFrameworkStores<TradeContext>()
     .AddClaimsPrincipalFactory<TradeUserClaimsPrincipalFactory>();
 
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+
 builder.Services.AddDbContext<TradeContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(connectionString));
 
 builder.Services.AddScoped<ITradeContext>(p => p.GetRequiredService<TradeContext>());
 
@@ -64,33 +68,23 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Host.UseWolverine(opts =>
+builder.Services.AddRebus(configure =>
 {
-    opts.UseEntityFrameworkCoreTransactions();
-    opts.Policies.UseDurableOutboxOnAllSendingEndpoints();
+    var rabbitUri = builder.Configuration["RabbitMQ:ConnectionString"]
+        ?? $"amqp://guest:guest@{builder.Configuration["RabbitMQ:Host"] ?? "localhost"}:5672";
 
-    if (!builder.Environment.IsEnvironment("Test"))
-    {
-        var rabbitHost = builder.Configuration["RabbitMQ:Host"] ?? "localhost";
-        var connectionUri = new Uri($"amqp://guest:guest@{rabbitHost}:5672");
-
-        opts.UseRabbitMq(connectionUri)
-            .AutoProvision()
-            .BindExchange(MessagingConstants.NotificationsExchange, ExchangeType.Fanout)
-            .ToQueue(MessagingConstants.NotificationsQueue);
-
-        opts.PublishMessage<TradePlatform.Core.DTOs.TransactionCreatedEvent>()
-            .ToRabbitQueue(MessagingConstants.OrdersQueue);
-
-        opts.PublishMessage<TradePlatform.Core.DTOs.TransactionUpdateDto>()
-            .ToRabbitExchange(MessagingConstants.NotificationsExchange, exchange =>
-            {
-                exchange.ExchangeType = ExchangeType.Fanout;
-            });
-
-        opts.ListenToRabbitQueue(MessagingConstants.NotificationsQueue);
-    }
+    return configure
+        .Logging(l => l.Serilog())
+        .Transport(t => t.UseRabbitMq(rabbitUri, MessagingConstants.NotificationsQueue))
+        .Routing(r => r.TypeBased().Map<TransactionCreatedEvent>(MessagingConstants.OrdersQueue))
+        .Options(o =>
+        {
+            o.SetNumberOfWorkers(1);
+            o.RetryStrategy(maxDeliveryAttempts: 3);
+        });
 });
+
+builder.Services.AutoRegisterHandlersFromAssemblyOf<NotificationHandler>();
 
 var app = builder.Build();
 

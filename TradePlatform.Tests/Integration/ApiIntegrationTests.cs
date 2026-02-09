@@ -6,10 +6,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using RabbitMQ.Client;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Testcontainers.MsSql;
+using Testcontainers.RabbitMq;
 using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
@@ -23,14 +25,37 @@ public class TradePlatformTestFactory : WebApplicationFactory<Program>, IAsyncLi
     private readonly MsSqlContainer _dbContainer =
         new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build();
 
+    private readonly RabbitMqContainer _rabbitContainer =
+        new RabbitMqBuilder("rabbitmq:4-management")
+        .Build();
+
     public async ValueTask InitializeAsync()
     {
         await _dbContainer.StartAsync(TestContext.Current.CancellationToken);
+        await _rabbitContainer.StartAsync(TestContext.Current.CancellationToken);
+
+        var factory = new ConnectionFactory
+        {
+            Uri = new Uri(_rabbitContainer.GetConnectionString())
+        };
+
+        using var connection = await factory.CreateConnectionAsync(TestContext.Current.CancellationToken);
+
+        using var channel = await connection.CreateChannelAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        await channel.QueueDeclareAsync(
+            queue: MessagingConstants.OrdersQueue,
+            durable: true,
+            exclusive: false,
+            autoDelete: false,
+            arguments: null,
+            cancellationToken: TestContext.Current.CancellationToken);
     }
 
     public override async ValueTask DisposeAsync()
     {
         await _dbContainer.DisposeAsync();
+        await _rabbitContainer.DisposeAsync();
         await base.DisposeAsync();
         GC.SuppressFinalize(this);
     }
@@ -38,6 +63,8 @@ public class TradePlatformTestFactory : WebApplicationFactory<Program>, IAsyncLi
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Test");
+
+        builder.UseSetting("RabbitMQ:ConnectionString", _rabbitContainer.GetConnectionString());
 
         builder.ConfigureTestServices(services =>
         {

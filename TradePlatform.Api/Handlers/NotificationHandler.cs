@@ -1,11 +1,12 @@
 ﻿using Microsoft.AspNetCore.SignalR;
+using Rebus.Handlers;
 using TradePlatform.Api.Hubs;
 using TradePlatform.Core.DTOs;
-using Wolverine;
 
 namespace TradePlatform.Api.Handlers;
 
 public partial class NotificationHandler(IHubContext<TradeHub> hubContext, ILogger<NotificationHandler> logger)
+    : IHandleMessages<TransactionUpdateDto>
 {
     public async Task Handle(TransactionUpdateDto notification)
     {
@@ -14,7 +15,7 @@ public partial class NotificationHandler(IHubContext<TradeHub> hubContext, ILogg
             await hubContext.Clients.Group(notification.AccountId)
                 .SendAsync("ReceiveStatusUpdate", notification);
 
-            LogProcessing(logger, notification.TransactionId, notification.AccountId);               
+            LogProcessing(logger, notification.TransactionId, notification.AccountId);
         }
     }
 

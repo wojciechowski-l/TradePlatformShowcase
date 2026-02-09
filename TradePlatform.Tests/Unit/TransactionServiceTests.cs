@@ -1,12 +1,12 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Moq;
+using Rebus.Bus;
 using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
 using TradePlatform.Core.Interfaces;
 using TradePlatform.Infrastructure.Services;
-using Wolverine;
 
 namespace TradePlatform.Tests.Unit
 {
@@ -37,7 +37,7 @@ namespace TradePlatform.Tests.Unit
         public async Task CreateTransactionAsync_Should_Create_Transaction_And_Publish_Event()
         {
             var mockContext = CreateMockContext(out var transactionsDbSetMock, out _);
-            var mockBus = new Mock<IMessageBus>();
+            var mockBus = new Mock<IBus>();
 
             var service = new TransactionService(mockContext.Object, mockBus.Object);
 
@@ -63,11 +63,11 @@ namespace TradePlatform.Tests.Unit
             );
 
             mockBus.Verify(
-                m => m.PublishAsync(
+                m => m.Send(
                     It.Is<TransactionCreatedEvent>(e =>
                         e.SourceAccountId == request.SourceAccountId &&
                         e.Amount == request.Amount),
-                    It.IsAny<DeliveryOptions>()
+                    It.IsAny<IDictionary<string, string>>()
                 ),
                 Times.Once
             );
@@ -79,7 +79,7 @@ namespace TradePlatform.Tests.Unit
         public async Task CreateTransactionAsync_Should_Rollback_On_Error()
         {
             var mockContext = CreateMockContext(out _, out _);
-            var mockBus = new Mock<IMessageBus>();
+            var mockBus = new Mock<IBus>();
 
             mockContext
                 .Setup(c => c.SaveChangesAsync(default))
@@ -95,17 +95,16 @@ namespace TradePlatform.Tests.Unit
                 Currency = "USD"
             };
 
-            // Act & Assert
             await Assert.ThrowsAsync<DbUpdateException>(
                 async () => await service.CreateTransactionAsync(request)
             );
 
             mockBus.Verify(
-                m => m.PublishAsync(
+                m => m.Send(
                     It.IsAny<TransactionCreatedEvent>(),
-                    It.IsAny<DeliveryOptions>()
+                    It.IsAny<IDictionary<string, string>>()
                 ),
-                Times.Once
+                Times.Never
             );
         }
     }
