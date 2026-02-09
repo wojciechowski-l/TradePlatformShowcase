@@ -52,13 +52,22 @@ This ensures that developers can easily trace where a specific message type is b
 
 ## 3. Fault Tolerance
 
-**Retries:** Configured with a `SimpleRetryStrategy` (3 attempts) to handle transient errors before giving up.
+- **Retries:** Configured with a `SimpleRetryStrategy` (3 attempts) to handle transient errors before giving up.
 
-**Resilience:** RabbitMQ transport is configured with durable queues to ensure messages survive broker restarts.
+- **Resilience:** RabbitMQ transport is configured with durable queues to ensure messages survive broker restarts.
 
 ---
 
-## 4. Architecture
+## 4. Observability & Monitoring
+The platform implements a complete observability pillar to prevent "black box" operations:
+
+- **Distributed Tracing**: Uses **OpenTelemetry** to generate a unique `TraceId` at the API, which Rebus propagates through RabbitMQ to the Worker. This allows visualizing the entire request flow across microservices in Seq.
+
+- **Metrics**: Exposes runtime and business metrics (e.g., Queue Depth, CPU, GC) via Prometheus endpoints.
+
+- **Visualisation**: **Grafana** is configured via "Provisioning as Code" to automatically load dashboards on startup, visualizing system health without manual setup.
+
+## 5. Architecture
 
 The solution follows a microservices-inspired architecture containerized via **Docker Compose**:
 

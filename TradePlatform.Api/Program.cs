@@ -1,8 +1,11 @@
 ﻿using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 using Rebus.Config;
-using Rebus.Routing.TypeBased;
+using Rebus.OpenTelemetry.Configuration;
 using Rebus.Retry.Simple;
+using Rebus.Routing.TypeBased;
 using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Events;
@@ -41,6 +44,16 @@ builder.Services.AddHealthChecks();
 builder.Services.AddSignalR();
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 builder.Services.AddFluentValidationAutoValidation();
+
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics => metrics
+        .AddAspNetCoreInstrumentation()
+        .AddRuntimeInstrumentation()
+        .AddPrometheusExporter())
+    .WithTracing(tracing => tracing
+        .AddAspNetCoreInstrumentation()
+        .AddRebusInstrumentation() 
+        .AddSource("Rebus"));
 
 builder.Services.AddScoped<IAccountOwnershipService, DbAccountOwnershipService>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
@@ -81,6 +94,7 @@ builder.Services.AddRebus(configure =>
         {
             o.SetNumberOfWorkers(1);
             o.RetryStrategy(maxDeliveryAttempts: 3);
+            o.EnableDiagnosticSources();
         });
 });
 
@@ -104,7 +118,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("AllowFrontends");
+app.UseSerilogRequestLogging();
 app.MapHealthChecks("/health");
+app.MapPrometheusScrapingEndpoint();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapGroup("/api/auth").MapIdentityApi<ApplicationUser>();

@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using OpenTelemetry.Metrics;
 using Rebus.Config;
+using Rebus.OpenTelemetry.Configuration;
 using Rebus.Retry.Simple;
 using Rebus.Routing.TypeBased;
 using Serilog;
@@ -23,6 +25,15 @@ Log.Logger = new LoggerConfiguration()
 builder.Logging.ClearProviders();
 builder.Logging.AddSerilog();
 
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics => metrics
+        .AddRuntimeInstrumentation()
+        .AddPrometheusHttpListener(options =>
+            options.UriPrefixes = ["http://*:9091/"]))
+    .WithTracing(tracing => tracing
+        .AddRebusInstrumentation()
+        .AddSource("Rebus"));
+
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 
@@ -42,6 +53,7 @@ builder.Services.AddRebus(configure =>
         {
             o.SetNumberOfWorkers(5);
             o.RetryStrategy(maxDeliveryAttempts: 3);
+            o.EnableDiagnosticSources();
         });
 });
 
