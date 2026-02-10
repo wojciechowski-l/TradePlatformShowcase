@@ -29,6 +29,9 @@ public partial class TransactionCreatedHandler(TradeContext dbContext, IBus bus,
             return;
         }
 
+        using var scope = new System.Transactions.TransactionScope(
+            System.Transactions.TransactionScopeAsyncFlowOption.Enabled);
+
         transaction.Status = TransactionStatus.Processed;
 
         await dbContext.SaveChangesAsync();
@@ -41,8 +44,9 @@ public partial class TransactionCreatedHandler(TradeContext dbContext, IBus bus,
             UpdatedAtUtc = DateTime.UtcNow
         };
 
-        // Changed to Send to route specifically to the API's notification queue
         await bus.Send(update);
+
+        scope.Complete();
 
         LogSuccess(logger, evt.TransactionId);
     }

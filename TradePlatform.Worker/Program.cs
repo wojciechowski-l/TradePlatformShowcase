@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
 using Rebus.Config;
+using Rebus.Config.Outbox;
 using Rebus.OpenTelemetry.Configuration;
 using Rebus.Retry.Simple;
 using Rebus.Routing.TypeBased;
@@ -48,6 +49,7 @@ builder.Services.AddRebus(configure =>
     return configure
         .Logging(l => l.Serilog())
         .Transport(t => t.UseRabbitMq(rabbitUri, MessagingConstants.OrdersQueue))
+        .Outbox(o => o.StoreInSqlServer(connectionString, "RebusOutbox"))
         .Routing(r => r.TypeBased().Map<TransactionUpdateDto>(MessagingConstants.NotificationsQueue))
         .Options(o =>
         {

@@ -14,6 +14,9 @@ namespace TradePlatform.Infrastructure.Services
 
         public async Task<CreateTransactionResult> CreateTransactionAsync(TransactionDto request)
         {
+            using var scope = new System.Transactions.TransactionScope(
+                System.Transactions.TransactionScopeAsyncFlowOption.Enabled);
+
             var transaction = new TransactionRecord
             {
                 Id = Guid.NewGuid(),
@@ -38,6 +41,8 @@ namespace TradePlatform.Infrastructure.Services
             await _context.SaveChangesAsync();
 
             await _bus.Send(eventPayload);
+
+            scope.Complete();
 
             return new CreateTransactionResult
             {

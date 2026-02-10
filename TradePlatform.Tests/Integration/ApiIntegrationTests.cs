@@ -26,30 +26,27 @@ public class TradePlatformTestFactory : WebApplicationFactory<Program>, IAsyncLi
         new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build();
 
     private readonly RabbitMqContainer _rabbitContainer =
-        new RabbitMqBuilder("rabbitmq:4-management")
-        .Build();
+        new RabbitMqBuilder("rabbitmq:4-management").Build();
 
     public async ValueTask InitializeAsync()
     {
-        await _dbContainer.StartAsync(TestContext.Current.CancellationToken);
-        await _rabbitContainer.StartAsync(TestContext.Current.CancellationToken);
+        await _dbContainer.StartAsync();
+        await _rabbitContainer.StartAsync();
 
         var factory = new ConnectionFactory
         {
             Uri = new Uri(_rabbitContainer.GetConnectionString())
         };
 
-        using var connection = await factory.CreateConnectionAsync(TestContext.Current.CancellationToken);
-
-        using var channel = await connection.CreateChannelAsync(cancellationToken: TestContext.Current.CancellationToken);
+        using var connection = await factory.CreateConnectionAsync();
+        using var channel = await connection.CreateChannelAsync();
 
         await channel.QueueDeclareAsync(
             queue: MessagingConstants.OrdersQueue,
             durable: true,
             exclusive: false,
             autoDelete: false,
-            arguments: null,
-            cancellationToken: TestContext.Current.CancellationToken);
+            arguments: null);
     }
 
     public override async ValueTask DisposeAsync()
@@ -64,19 +61,13 @@ public class TradePlatformTestFactory : WebApplicationFactory<Program>, IAsyncLi
     {
         builder.UseEnvironment("Test");
 
+        builder.UseSetting("ConnectionStrings:DefaultConnection", _dbContainer.GetConnectionString());
         builder.UseSetting("RabbitMQ:ConnectionString", _rabbitContainer.GetConnectionString());
+        builder.UseSetting("RabbitMQ:Host", _rabbitContainer.Hostname);
+        builder.UseSetting("RabbitMQ:Port", _rabbitContainer.GetMappedPublicPort(5672).ToString());
 
         builder.ConfigureTestServices(services =>
         {
-            var descriptor = services.SingleOrDefault(
-                d => d.ServiceType == typeof(DbContextOptions<TradeContext>));
-
-            if (descriptor != null)
-                services.Remove(descriptor);
-
-            services.AddDbContext<TradeContext>(options =>
-                options.UseSqlServer(_dbContainer.GetConnectionString()));
-
             services.AddAuthentication("TestScheme")
                 .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
                     "TestScheme", _ => { });
@@ -94,12 +85,27 @@ public class ApiIntegrationTests(TradePlatformTestFactory factory) : IClassFixtu
         var userId = Guid.NewGuid().ToString();
         var sourceAccId = $"ACC_{Guid.NewGuid()}";
         var targetAccId = $"ACC_{Guid.NewGuid()}";
+        var ct = TestContext.Current.CancellationToken;
 
         using (var scope = _factory.Services.CreateScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<TradeContext>();
 
-            await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+            await context.Database.EnsureCreatedAsync(ct);
+
+            var createOutboxSql = @"
+                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'RebusOutbox')
+                CREATE TABLE [dbo].[RebusOutbox] (
+                    [id] [bigint] IDENTITY(1,1) NOT NULL,
+                    [message_id] [nvarchar](200) NOT NULL,
+                    [source_queue] [nvarchar](200) NOT NULL,
+                    [destination_queue] [nvarchar](200) NOT NULL,
+                    [headers] [varbinary](max) NULL,
+                    [body] [varbinary](max) NULL,
+                    [creation_time] [datetimeoffset](7) NOT NULL,
+                    CONSTRAINT [PK_RebusOutbox] PRIMARY KEY CLUSTERED ([id] ASC)
+                );";
+            await context.Database.ExecuteSqlRawAsync(createOutboxSql, [], ct);
 
             var user = new ApplicationUser
             {
@@ -125,7 +131,7 @@ public class ApiIntegrationTests(TradePlatformTestFactory factory) : IClassFixtu
             };
 
             context.Accounts.AddRange(acc1, acc2);
-            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+            await context.SaveChangesAsync(ct);
         }
 
         var client = _factory.CreateClient();
@@ -141,15 +147,11 @@ public class ApiIntegrationTests(TradePlatformTestFactory factory) : IClassFixtu
             Currency = "USD"
         };
 
-        var response = await client.PostAsJsonAsync(
-            "/api/transactions",
-            request,
-            TestContext.Current.CancellationToken);
+        var response = await client.PostAsJsonAsync("/api/transactions", request, ct);
 
         response.EnsureSuccessStatusCode();
 
-        var result = await response.Content.ReadFromJsonAsync<CreateTransactionResult>(
-            cancellationToken: TestContext.Current.CancellationToken);
+        var result = await response.Content.ReadFromJsonAsync<CreateTransactionResult>(cancellationToken: ct);
 
         Assert.NotNull(result);
         Assert.Equal(TransactionStatus.Pending, result.Status);
@@ -159,6 +161,7 @@ public class ApiIntegrationTests(TradePlatformTestFactory factory) : IClassFixtu
     public async Task CreateTransaction_Should_Validate_Inputs()
     {
         var client = _factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
 
         client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("TestScheme");
@@ -171,15 +174,11 @@ public class ApiIntegrationTests(TradePlatformTestFactory factory) : IClassFixtu
             Currency = "USD"
         };
 
-        var response = await client.PostAsJsonAsync(
-            "/api/transactions",
-            request,
-            TestContext.Current.CancellationToken);
+        var response = await client.PostAsJsonAsync("/api/transactions", request, ct);
 
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
 
-        var body = await response.Content.ReadAsStringAsync(
-            TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(ct);
 
         Assert.Contains("Source and Target accounts must be different", body);
     }

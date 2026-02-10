@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Rebus.Config;
+using Rebus.Config.Outbox;
 using Rebus.OpenTelemetry.Configuration;
 using Rebus.Retry.Simple;
 using Rebus.Routing.TypeBased;
@@ -52,7 +53,7 @@ builder.Services.AddOpenTelemetry()
         .AddPrometheusExporter())
     .WithTracing(tracing => tracing
         .AddAspNetCoreInstrumentation()
-        .AddRebusInstrumentation() 
+        .AddRebusInstrumentation()
         .AddSource("Rebus"));
 
 builder.Services.AddScoped<IAccountOwnershipService, DbAccountOwnershipService>();
@@ -89,6 +90,7 @@ builder.Services.AddRebus(configure =>
     return configure
         .Logging(l => l.Serilog())
         .Transport(t => t.UseRabbitMq(rabbitUri, MessagingConstants.NotificationsQueue))
+        .Outbox(o => o.StoreInSqlServer(connectionString, "RebusOutbox"))
         .Routing(r => r.TypeBased().Map<TransactionCreatedEvent>(MessagingConstants.OrdersQueue))
         .Options(o =>
         {
