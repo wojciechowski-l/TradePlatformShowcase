@@ -36,15 +36,14 @@ public partial class TransactionCreatedHandler(TradeContext dbContext, IBus bus,
 
         await dbContext.SaveChangesAsync();
 
-        var update = new TransactionUpdateDto
-        {
-            TransactionId = evt.TransactionId,
-            Status = TransactionStatus.Processed,
-            AccountId = evt.SourceAccountId,
-            UpdatedAtUtc = DateTime.UtcNow
-        };
+        var processedEvent = new TransactionProcessedEvent(
+            evt.TransactionId,
+            evt.SourceAccountId,
+            TransactionStatus.Processed,
+            DateTime.UtcNow
+        );
 
-        await bus.Send(update);
+        await bus.Publish(processedEvent);
 
         scope.Complete();
 

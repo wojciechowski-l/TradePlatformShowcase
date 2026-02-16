@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using Rebus.Bus;
 using Rebus.Config;
 using Rebus.Config.Outbox;
 using Rebus.OpenTelemetry.Configuration;
@@ -42,7 +43,14 @@ builder.Host.UseSerilog((context, services, configuration) =>
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks();
-builder.Services.AddSignalR();
+
+var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
+
+builder.Services.AddSignalR()
+    .AddStackExchangeRedis(redisConnectionString, options => {
+        options.Configuration.ChannelPrefix = StackExchange.Redis.RedisChannel.Literal("TradePlatform");
+    });
+
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 builder.Services.AddFluentValidationAutoValidation();
 
@@ -111,6 +119,9 @@ using (var scope = app.Services.CreateScope())
         scope.ServiceProvider.GetRequiredService<TradeContext>().Database.Migrate();
     }
     catch { }
+
+    var bus = scope.ServiceProvider.GetRequiredService<IBus>();
+    await bus.Subscribe<TransactionProcessedEvent>();
 }
 
 if (app.Environment.IsDevelopment())

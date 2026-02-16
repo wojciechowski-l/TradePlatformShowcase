@@ -38,6 +38,17 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: trade-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   prometheus:
     image: prom/prometheus:latest
     container_name: trade-prometheus
@@ -85,6 +96,7 @@ services:
       - ConnectionStrings__DefaultConnection=Server=trade-sql;Database=TradePlatformDb;User Id=sa;Password=Password123!;TrustServerCertificate=True;
       - RabbitMQ__Host=trade-rabbitmq
       - Seq__ServerUrl=http://trade-seq
+      - Redis__ConnectionString=trade-redis:6379
     depends_on:
       sql-server:
         condition: service_healthy
@@ -92,6 +104,8 @@ services:
         condition: service_healthy
       seq:
         condition: service_started
+      redis:
+        condition: service_healthy
 
   worker:
     build:

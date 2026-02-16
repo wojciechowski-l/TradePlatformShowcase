@@ -81,13 +81,12 @@ namespace TradePlatform.Tests.Worker
             Assert.NotNull(updatedTx);
             Assert.Equal(TransactionStatus.Processed, updatedTx.Status);
 
-            // FIX: Changed Publish to Send
             mockBus.Verify(
-                m => m.Send(
-                    It.Is<TransactionUpdateDto>(u =>
-                        u.TransactionId == txId &&
-                        u.Status == TransactionStatus.Processed &&
-                        u.AccountId == srcAccId),
+                m => m.Publish(
+                    It.Is<TransactionProcessedEvent>(e =>
+                        e.TransactionId == txId &&
+                        e.Status == TransactionStatus.Processed &&
+                        e.AccountId == srcAccId),
                     It.IsAny<IDictionary<string, string>>()
                 ),
                 Times.Once
@@ -149,8 +148,7 @@ namespace TradePlatform.Tests.Worker
             var handler = new TransactionCreatedHandler(context, mockBus.Object, mockLogger.Object);
             await handler.Handle(evt);
 
-            // FIX: Changed Publish to Send
-            mockBus.Verify(m => m.Send(It.IsAny<object>(), It.IsAny<IDictionary<string, string>>()), Times.Never);
+            mockBus.Verify(m => m.Publish(It.IsAny<object>(), It.IsAny<IDictionary<string, string>>()), Times.Never);
         }
     }
 

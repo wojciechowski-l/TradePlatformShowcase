@@ -28,6 +28,17 @@ services:
       timeout: 5s
       retries: 5
 
+  test-redis:
+    image: redis:7-alpine
+    container_name: trade-test-redis
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   test-api:
     build:
       context: .
@@ -41,10 +52,13 @@ services:
       - RabbitMQ__Host=trade-test-rabbit
       - RabbitMQ__Port=5672
       - Seq__ServerUrl=http://trade-test-seq
+      - Redis__ConnectionString=trade-test-redis:6379
     depends_on:
       test-db:
         condition: service_healthy
       test-rabbit:
+        condition: service_healthy
+      test-redis:
         condition: service_healthy
       test-seq:
         condition: service_started

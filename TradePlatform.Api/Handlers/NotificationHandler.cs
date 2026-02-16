@@ -6,16 +6,24 @@ using TradePlatform.Core.DTOs;
 namespace TradePlatform.Api.Handlers;
 
 public partial class NotificationHandler(IHubContext<TradeHub> hubContext, ILogger<NotificationHandler> logger)
-    : IHandleMessages<TransactionUpdateDto>
+    : IHandleMessages<TransactionProcessedEvent>
 {
-    public async Task Handle(TransactionUpdateDto notification)
+    public async Task Handle(TransactionProcessedEvent message)
     {
-        if (!string.IsNullOrEmpty(notification.AccountId))
+        if (!string.IsNullOrEmpty(message.AccountId))
         {
-            await hubContext.Clients.Group(notification.AccountId)
-                .SendAsync("ReceiveStatusUpdate", notification);
+            var dto = new TransactionUpdateDto
+            {
+                TransactionId = message.TransactionId,
+                Status = message.Status,
+                AccountId = message.AccountId,
+                UpdatedAtUtc = message.ProcessedAtUtc
+            };
 
-            LogProcessing(logger, notification.TransactionId, notification.AccountId);
+            await hubContext.Clients.Group(message.AccountId)
+                .SendAsync("ReceiveStatusUpdate", dto);
+
+            LogProcessing(logger, message.TransactionId, message.AccountId);
         }
     }
 

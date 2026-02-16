@@ -78,11 +78,11 @@ The solution follows a microservices-inspired architecture containerized via **D
   .NET 10 Host. Consumes messages via Rebus Handlers (`IHandleMessages<T>`) and processes trades.
 
 - **Infrastructure:**  
-  SQL Server 2022, RabbitMQ, Prometheus, Grafana, Seq.
+  SQL Server 2022, RabbitMQ, Redis, Prometheus, Grafana, Seq.
 
 ---
 
-## 5. Domain Integrity & Type Safety
+## 6. Domain Integrity & Type Safety
 
 Beyond infrastructure reliability, the core domain enforces strict correctness:
 
@@ -94,6 +94,15 @@ Beyond infrastructure reliability, the core domain enforces strict correctness:
 
 - **Defensive Coding:**  
   Entities use required properties and validation to ensure no object exists in an invalid state.
+
+---
+
+## 7. Scalable Real-Time Notifications
+To support horizontal scaling of the API layer, we replaced direct API messaging with a Pub/Sub model backed by Redis.
+
+- **Redis Backplane**: Ensures SignalR messages reach users regardless of which API replica they are connected to.
+
+- **Event-Driven Updates**: The Worker no longer sends commands to the API. Instead, it publishes a `TransactionProcessedEvent`, which the API subscribes to. This decouples the Worker from the API's internal topology.
 
 ---
 
@@ -184,3 +193,5 @@ docker-compose up -d --build
 -   **Testing**: xUnit, Testcontainers, Cypress
     
 -   **Observability**: Prometheus, Grafana
+
+-   **Real-time**: SignalR with Redis Backplane
