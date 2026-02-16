@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Rebus.Bus;
 using TradePlatform.Core.Constants;
@@ -38,8 +39,11 @@ namespace TradePlatform.Tests.Unit
         {
             var mockContext = CreateMockContext(out var transactionsDbSetMock, out _);
             var mockBus = new Mock<IBus>();
+            var mockLogger = new Mock<ILogger<TransactionService>>();
 
-            var service = new TransactionService(mockContext.Object, mockBus.Object);
+            mockLogger.Setup(x => x.IsEnabled(LogLevel.Information)).Returns(true);
+
+            var service = new TransactionService(mockContext.Object, mockBus.Object, mockLogger.Object);
 
             var request = new TransactionDto
             {
@@ -73,6 +77,20 @@ namespace TradePlatform.Tests.Unit
             );
 
             mockContext.Verify(c => c.SaveChangesAsync(default), Times.Once);
+
+            var logEntry = mockLogger.Invocations.FirstOrDefault(i =>
+                i.Method.Name == "Log" &&
+                i.Arguments.Count > 0 &&
+                (LogLevel)i.Arguments[0] == LogLevel.Information);
+
+            Assert.NotNull(logEntry);
+
+            var logMessage = logEntry.Arguments[2]?.ToString();
+
+            Assert.NotNull(logMessage);
+            Assert.Contains("Created transaction", logMessage);
+            Assert.Contains("100", logMessage);
+            Assert.Contains("USD", logMessage);
         }
 
         [Fact]
@@ -80,12 +98,13 @@ namespace TradePlatform.Tests.Unit
         {
             var mockContext = CreateMockContext(out _, out _);
             var mockBus = new Mock<IBus>();
+            var mockLogger = new Mock<ILogger<TransactionService>>();
 
             mockContext
                 .Setup(c => c.SaveChangesAsync(default))
                 .ThrowsAsync(new DbUpdateException("Database constraint violation"));
 
-            var service = new TransactionService(mockContext.Object, mockBus.Object);
+            var service = new TransactionService(mockContext.Object, mockBus.Object, mockLogger.Object);
 
             var request = new TransactionDto
             {

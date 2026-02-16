@@ -63,7 +63,7 @@ The platform implements a complete observability pillar to prevent "black box" o
 
 - **Distributed Tracing**: Uses **OpenTelemetry** to generate a unique `TraceId` at the API, which Rebus propagates through RabbitMQ to the Worker. This allows visualizing the entire request flow across microservices in Seq.
 
-- **Metrics**: Exposes runtime and business metrics (e.g., Queue Depth, CPU, GC) via Prometheus endpoints.
+- **Metrics**: Exposes runtime and business metrics (e.g., Trade Volume, Trades/sec, Queue Depth, CPU, GC) via Prometheus endpoints.
 
 - **Visualisation**: **Grafana** is configured via "Provisioning as Code" to automatically load dashboards on startup, visualizing system health without manual setup.
 
