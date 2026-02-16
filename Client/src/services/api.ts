@@ -62,7 +62,18 @@ export const loginUser = async (creds: LoginRequest): Promise<LoginResponse> => 
         body: JSON.stringify(creds),
     });
 
-    if (!response.ok) throw new Error('Login failed');
+    if (!response.ok) {
+        let errorMessage = 'Login failed';
+        try {
+            const errorData = await response.json();
+            if (errorData.message) {
+                errorMessage = errorData.message;
+            }
+        } catch {
+
+        }
+        throw new Error(errorMessage);
+    }
     return response.json();
 };
 

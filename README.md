@@ -126,9 +126,9 @@ Located in `TradePlatform.Tests`, these tests run before the full environment sp
 
 ## 2. End-to-End (E2E) Tests
 
-Located in `Client/cypress`, these tests run against the fully deployed Docker Compose environment.
+Located in `Client/e2e`, these tests run against the fully deployed Docker Compose environment.
 
-**Tech:** Cypress
+**Tech:** Playwright
 
 **Scope:**  
 Simulates a real user logging in, placing a trade, and verifying the UI updates after the background worker completes the job via SignalR.
@@ -190,7 +190,7 @@ docker-compose up -d --build
     
 -   **Database**: Microsoft SQL Server 2022
     
--   **Testing**: xUnit, Testcontainers, Cypress
+-   **Testing**: xUnit, Testcontainers, Playwright
     
 -   **Observability**: Prometheus, Grafana
 

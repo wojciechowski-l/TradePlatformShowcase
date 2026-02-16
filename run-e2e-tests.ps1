@@ -51,14 +51,17 @@ try {
         exit 1
     }
 
-    Write-Information "Running Cypress tests"
+    Write-Information "Running Playwright tests"
     Set-Location "$rootPath/Client"
-    $env:CYPRESS_baseUrl = "http://localhost:3001"
+    $env:BASE_URL = "http://localhost:3001"
 
-    npx cypress run --spec "cypress/e2e/trade_flow.cy.ts"
+    Write-Information "Installing Playwright browsers..."
+    npx playwright install
+
+    npx playwright test
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Cypress tests failed"
+        Write-Error "Playwright tests failed"
         exit 1
     }
 

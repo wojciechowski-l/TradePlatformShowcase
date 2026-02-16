@@ -13,6 +13,10 @@ coverage/
 cypress/videos/
 cypress/screenshots/
 
+# Playwirght
+playwright-report/
+test-results/
+
 # OS
 .DS_Store
 Thumbs.db
