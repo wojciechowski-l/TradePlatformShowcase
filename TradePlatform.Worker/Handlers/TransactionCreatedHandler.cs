@@ -3,17 +3,24 @@ using Rebus.Bus;
 using Rebus.Handlers;
 using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
+using TradePlatform.Core.Interfaces;
 using TradePlatform.Infrastructure.Data;
 
 namespace TradePlatform.Worker.Handlers;
 
-public partial class TransactionCreatedHandler(TradeContext dbContext, IBus bus, ILogger<TransactionCreatedHandler> logger)
-    : IHandleMessages<TransactionCreatedEvent>
+public partial class TransactionCreatedHandler(
+TradeContext dbContext,
+IBus bus,
+ITransactionScopeManager transactionScopeManager,
+ILogger<TransactionCreatedHandler> logger)
+: IHandleMessages<TransactionCreatedEvent>
 {
     public async Task Handle(TransactionCreatedEvent evt)
     {
         LogProcessing(logger, evt.TransactionId);
 
+        // Read outside the transaction (similar to original logic)
+        // This keeps the transaction short.
         var transaction = await dbContext.Transactions
             .FirstOrDefaultAsync(t => t.Id == evt.TransactionId);
 
@@ -29,23 +36,21 @@ public partial class TransactionCreatedHandler(TradeContext dbContext, IBus bus,
             return;
         }
 
-        using var scope = new System.Transactions.TransactionScope(
-            System.Transactions.TransactionScopeAsyncFlowOption.Enabled);
+        await transactionScopeManager.ExecuteInTransactionAsync(async () =>
+        {
+            transaction.Status = TransactionStatus.Processed;
 
-        transaction.Status = TransactionStatus.Processed;
+            await dbContext.SaveChangesAsync();
 
-        await dbContext.SaveChangesAsync();
+            var processedEvent = new TransactionProcessedEvent(
+                evt.TransactionId,
+                evt.SourceAccountId,
+                TransactionStatus.Processed,
+                DateTime.UtcNow
+            );
 
-        var processedEvent = new TransactionProcessedEvent(
-            evt.TransactionId,
-            evt.SourceAccountId,
-            TransactionStatus.Processed,
-            DateTime.UtcNow
-        );
-
-        await bus.Publish(processedEvent);
-
-        scope.Complete();
+            await bus.Publish(processedEvent);
+        });
 
         LogSuccess(logger, evt.TransactionId);
     }

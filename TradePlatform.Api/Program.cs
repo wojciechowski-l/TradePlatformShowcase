@@ -27,12 +27,12 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseSerilog((context, services, configuration) =>
 {
     configuration
-        .ReadFrom.Configuration(context.Configuration)
-        .ReadFrom.Services(services)
-        .Enrich.FromLogContext()
-        .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
-        .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
-        .WriteTo.Console();
+    .ReadFrom.Configuration(context.Configuration)
+    .ReadFrom.Services(services)
+    .Enrich.FromLogContext()
+    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
+    .WriteTo.Console();
 
     if (!builder.Environment.IsEnvironment("Test"))
     {
@@ -47,36 +47,37 @@ builder.Services.AddHealthChecks();
 var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
 
 builder.Services.AddSignalR()
-    .AddStackExchangeRedis(redisConnectionString, options => {
-        options.Configuration.ChannelPrefix = StackExchange.Redis.RedisChannel.Literal("TradePlatform");
-    });
+.AddStackExchangeRedis(redisConnectionString, options => {
+    options.Configuration.ChannelPrefix = StackExchange.Redis.RedisChannel.Literal("TradePlatform");
+});
 
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 builder.Services.AddFluentValidationAutoValidation();
 
 builder.Services.AddOpenTelemetry()
-    .WithMetrics(metrics => metrics
-        .AddAspNetCoreInstrumentation()
-        .AddRuntimeInstrumentation()
-        .AddMeter("TradePlatform.Transactions")
-        .AddPrometheusExporter())
-    .WithTracing(tracing => tracing
-        .AddAspNetCoreInstrumentation()
-        .AddRebusInstrumentation()
-        .AddSource("Rebus"));
+.WithMetrics(metrics => metrics
+.AddAspNetCoreInstrumentation()
+.AddRuntimeInstrumentation()
+.AddMeter("TradePlatform.Transactions")
+.AddPrometheusExporter())
+.WithTracing(tracing => tracing
+.AddAspNetCoreInstrumentation()
+.AddRebusInstrumentation()
+.AddSource("Rebus"));
 
 builder.Services.AddScoped<IAccountOwnershipService, DbAccountOwnershipService>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
+builder.Services.AddScoped<ITransactionScopeManager, RebusSqlTransactionScopeManager>();
 
 builder.Services.AddIdentityApiEndpoints<ApplicationUser>()
-    .AddEntityFrameworkStores<TradeContext>()
-    .AddClaimsPrincipalFactory<TradeUserClaimsPrincipalFactory>();
+.AddEntityFrameworkStores<TradeContext>()
+.AddClaimsPrincipalFactory<TradeUserClaimsPrincipalFactory>();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 
 builder.Services.AddDbContext<TradeContext>(options =>
-    options.UseSqlServer(connectionString));
+options.UseSqlServer(connectionString));
 
 builder.Services.AddScoped<ITradeContext>(p => p.GetRequiredService<TradeContext>());
 
@@ -85,16 +86,16 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontends", policy =>
     {
         policy.WithOrigins("http://localhost:3000", "http://localhost:3001")
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
+        .AllowAnyHeader()
+        .AllowAnyMethod()
+        .AllowCredentials();
     });
 });
 
 builder.Services.AddRebus(configure =>
 {
     var rabbitUri = builder.Configuration["RabbitMQ:ConnectionString"]
-        ?? $"amqp://guest:guest@{builder.Configuration["RabbitMQ:Host"] ?? "localhost"}:5672";
+    ?? $"amqp://guest:guest@{builder.Configuration["RabbitMQ:Host"] ?? "localhost"}:5672";
 
     return configure
         .Logging(l => l.Serilog())

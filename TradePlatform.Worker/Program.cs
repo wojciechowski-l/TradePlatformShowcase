@@ -9,42 +9,46 @@ using Serilog;
 using Serilog.Events;
 using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
+using TradePlatform.Core.Interfaces;
 using TradePlatform.Infrastructure.Data;
+using TradePlatform.Infrastructure.Services;
 using TradePlatform.Worker.Handlers;
 
 var builder = Host.CreateApplicationBuilder(args);
 
 var seqUrl = builder.Configuration["Seq:ServerUrl"] ?? "http://seq";
 Log.Logger = new LoggerConfiguration()
-    .MinimumLevel.Information()
-    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
-    .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
-    .Enrich.FromLogContext()
-    .WriteTo.Console()
-    .WriteTo.Seq(seqUrl)
-    .CreateLogger();
+.MinimumLevel.Information()
+.MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+.MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
+.Enrich.FromLogContext()
+.WriteTo.Console()
+.WriteTo.Seq(seqUrl)
+.CreateLogger();
 builder.Logging.ClearProviders();
 builder.Logging.AddSerilog();
 
 builder.Services.AddOpenTelemetry()
-    .WithMetrics(metrics => metrics
-        .AddRuntimeInstrumentation()
-        .AddPrometheusHttpListener(options =>
-            options.UriPrefixes = ["http://*:9091/"]))
-    .WithTracing(tracing => tracing
-        .AddRebusInstrumentation()
-        .AddSource("Rebus"));
+.WithMetrics(metrics => metrics
+.AddRuntimeInstrumentation()
+.AddPrometheusHttpListener(options =>
+options.UriPrefixes = ["http://*:9091/"]))
+.WithTracing(tracing => tracing
+.AddRebusInstrumentation()
+.AddSource("Rebus"));
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 
 builder.Services.AddDbContext<TradeContext>(options =>
-    options.UseSqlServer(connectionString));
+options.UseSqlServer(connectionString));
+
+builder.Services.AddScoped<ITransactionScopeManager, RebusSqlTransactionScopeManager>();
 
 builder.Services.AddRebus(configure =>
 {
     var rabbitUri = builder.Configuration["RabbitMQ:ConnectionString"]
-        ?? $"amqp://guest:guest@{builder.Configuration["RabbitMQ:Host"] ?? "localhost"}:5672";
+    ?? $"amqp://guest:guest@{builder.Configuration["RabbitMQ:Host"] ?? "localhost"}:5672";
 
     return configure
         .Logging(l => l.Serilog())

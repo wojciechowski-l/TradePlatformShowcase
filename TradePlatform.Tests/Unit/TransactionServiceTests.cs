@@ -14,8 +14,8 @@ namespace TradePlatform.Tests.Unit
     public class TransactionServiceTests
     {
         private static Mock<ITradeContext> CreateMockContext(
-            out Mock<DbSet<TransactionRecord>> transactionsDbSetMock,
-            out Mock<IDbContextTransaction> transactionMock
+        out Mock<DbSet<TransactionRecord>> transactionsDbSetMock,
+        out Mock<IDbContextTransaction> transactionMock
         )
         {
             var mockContext = new Mock<ITradeContext>();
@@ -34,16 +34,34 @@ namespace TradePlatform.Tests.Unit
             return mockContext;
         }
 
+        private static Mock<ITransactionScopeManager> CreateMockTransactionScopeManager()
+        {
+            var mock = new Mock<ITransactionScopeManager>();
+
+            mock.Setup(m => m.ExecuteInTransactionAsync(It.IsAny<Func<Task<CreateTransactionResult>>>()))
+                .Returns((Func<Task<CreateTransactionResult>> action) => action());
+
+            mock.Setup(m => m.ExecuteInTransactionAsync(It.IsAny<Func<Task>>()))
+                .Returns((Func<Task> action) => action());
+
+            return mock;
+        }
+
         [Fact]
         public async Task CreateTransactionAsync_Should_Create_Transaction_And_Publish_Event()
         {
             var mockContext = CreateMockContext(out var transactionsDbSetMock, out _);
             var mockBus = new Mock<IBus>();
             var mockLogger = new Mock<ILogger<TransactionService>>();
+            var mockTransactionManager = CreateMockTransactionScopeManager();
 
             mockLogger.Setup(x => x.IsEnabled(LogLevel.Information)).Returns(true);
 
-            var service = new TransactionService(mockContext.Object, mockBus.Object, mockLogger.Object);
+            var service = new TransactionService(
+                mockContext.Object,
+                mockBus.Object,
+                mockTransactionManager.Object,
+                mockLogger.Object);
 
             var request = new TransactionDto
             {
@@ -99,12 +117,17 @@ namespace TradePlatform.Tests.Unit
             var mockContext = CreateMockContext(out _, out _);
             var mockBus = new Mock<IBus>();
             var mockLogger = new Mock<ILogger<TransactionService>>();
+            var mockTransactionManager = CreateMockTransactionScopeManager();
 
             mockContext
                 .Setup(c => c.SaveChangesAsync(default))
                 .ThrowsAsync(new DbUpdateException("Database constraint violation"));
 
-            var service = new TransactionService(mockContext.Object, mockBus.Object, mockLogger.Object);
+            var service = new TransactionService(
+                mockContext.Object,
+                mockBus.Object,
+                mockTransactionManager.Object,
+                mockLogger.Object);
 
             var request = new TransactionDto
             {

@@ -9,10 +9,15 @@ using TradePlatform.Core.ValueObjects;
 
 namespace TradePlatform.Infrastructure.Services
 {
-    public partial class TransactionService(ITradeContext context, IBus bus, ILogger<TransactionService> logger) : ITransactionService
+    public partial class TransactionService(
+    ITradeContext context,
+    IBus bus,
+    ITransactionScopeManager transactionScopeManager,
+    ILogger<TransactionService> logger) : ITransactionService
     {
         private readonly ITradeContext _context = context;
         private readonly IBus _bus = bus;
+        private readonly ITransactionScopeManager _transactionScopeManager = transactionScopeManager;
         private readonly ILogger<TransactionService> _logger = logger;
 
         private static readonly Meter Meter = new("TradePlatform.Transactions", "1.0.0");
@@ -26,51 +31,49 @@ namespace TradePlatform.Infrastructure.Services
 
         public async Task<CreateTransactionResult> CreateTransactionAsync(TransactionDto request)
         {
-            using var scope = new System.Transactions.TransactionScope(
-                System.Transactions.TransactionScopeAsyncFlowOption.Enabled);
-
-            var transaction = new TransactionRecord
+            return await _transactionScopeManager.ExecuteInTransactionAsync(async () =>
             {
-                Id = Guid.NewGuid(),
-                SourceAccountId = request.SourceAccountId,
-                TargetAccountId = request.TargetAccountId,
-                Amount = request.Amount,
-                Currency = Currency.FromCode(request.Currency),
-                Status = TransactionStatus.Pending,
-                CreatedAtUtc = DateTime.UtcNow
-            };
+                var transactionRecord = new TransactionRecord
+                {
+                    Id = Guid.NewGuid(),
+                    SourceAccountId = request.SourceAccountId,
+                    TargetAccountId = request.TargetAccountId,
+                    Amount = request.Amount,
+                    Currency = Currency.FromCode(request.Currency),
+                    Status = TransactionStatus.Pending,
+                    CreatedAtUtc = DateTime.UtcNow
+                };
 
-            var eventPayload = new TransactionCreatedEvent(
-                transaction.Id,
-                transaction.SourceAccountId,
-                transaction.TargetAccountId,
-                transaction.Amount,
-                transaction.Currency.Code
-            );
+                var eventPayload = new TransactionCreatedEvent(
+                    transactionRecord.Id,
+                    transactionRecord.SourceAccountId,
+                    transactionRecord.TargetAccountId,
+                    transactionRecord.Amount,
+                    transactionRecord.Currency.Code
+                );
 
-            _context.Transactions.Add(transaction);
+                _context.Transactions.Add(transactionRecord);
 
-            await _context.SaveChangesAsync();
+                await _context.SaveChangesAsync();
 
-            await _bus.Send(eventPayload);
+                await _bus.Send(eventPayload);
 
-            scope.Complete();
-
-            var tags = new KeyValuePair<string, object?>[]
-            {
+                var tags = new KeyValuePair<string, object?>[]
+                {
                 new("currency", request.Currency)
-            };
+                };
 
-            TradesCreatedCounter.Add(1, tags);
-            TradeAmountHistogram.Record((double)request.Amount, tags);
+                TradesCreatedCounter.Add(1, tags);
+                TradeAmountHistogram.Record((double)request.Amount, tags);
 
-            LogTransactionCreated(transaction.Id, transaction.Amount, transaction.Currency.Code);
+                LogTransactionCreated(transactionRecord.Id, transactionRecord.Amount, transactionRecord.Currency.Code);
 
-            return new CreateTransactionResult
-            {
-                TransactionId = transaction.Id,
-                Status = TransactionStatus.Pending
-            };
+                return new CreateTransactionResult
+                {
+                    TransactionId = transactionRecord.Id,
+                    Status = TransactionStatus.Pending
+                };
+            });
         }
     }
 }

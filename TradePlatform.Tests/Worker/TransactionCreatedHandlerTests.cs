@@ -6,6 +6,7 @@ using Testcontainers.MsSql;
 using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
+using TradePlatform.Core.Interfaces;
 using TradePlatform.Core.ValueObjects;
 using TradePlatform.Infrastructure.Data;
 using TradePlatform.Worker.Handlers;
@@ -15,6 +16,14 @@ namespace TradePlatform.Tests.Worker
     public class TransactionCreatedHandlerTests(WorkerDatabaseFixture fixture) : IClassFixture<WorkerDatabaseFixture>
     {
         private readonly WorkerDatabaseFixture _fixture = fixture;
+
+        private static Mock<ITransactionScopeManager> CreateMockTransactionScopeManager()
+        {
+            var mock = new Mock<ITransactionScopeManager>();
+            mock.Setup(m => m.ExecuteInTransactionAsync(It.IsAny<Func<Task>>()))
+                .Returns((Func<Task> action) => action());
+            return mock;
+        }
 
         [Fact]
         public async Task Handle_Should_Process_Transaction_And_Publish_Notification()
@@ -66,10 +75,16 @@ namespace TradePlatform.Tests.Worker
 
             var mockBus = new Mock<IBus>();
             var mockLogger = new Mock<ILogger<TransactionCreatedHandler>>();
+            var mockTransactionManager = CreateMockTransactionScopeManager();
 
             var evt = new TransactionCreatedEvent(txId, srcAccId, tgtAccId, 50, "USD");
 
-            var handler = new TransactionCreatedHandler(context, mockBus.Object, mockLogger.Object);
+            var handler = new TransactionCreatedHandler(
+                context,
+                mockBus.Object,
+                mockTransactionManager.Object,
+                mockLogger.Object);
+
             await handler.Handle(evt);
 
             context.ChangeTracker.Clear();
@@ -143,9 +158,16 @@ namespace TradePlatform.Tests.Worker
 
             var mockBus = new Mock<IBus>();
             var mockLogger = new Mock<ILogger<TransactionCreatedHandler>>();
+            var mockTransactionManager = CreateMockTransactionScopeManager();
+
             var evt = new TransactionCreatedEvent(txId, srcAccId, tgtAccId, 50, "USD");
 
-            var handler = new TransactionCreatedHandler(context, mockBus.Object, mockLogger.Object);
+            var handler = new TransactionCreatedHandler(
+                context,
+                mockBus.Object,
+                mockTransactionManager.Object,
+                mockLogger.Object);
+
             await handler.Handle(evt);
 
             mockBus.Verify(m => m.Publish(It.IsAny<object>(), It.IsAny<IDictionary<string, string>>()), Times.Never);
