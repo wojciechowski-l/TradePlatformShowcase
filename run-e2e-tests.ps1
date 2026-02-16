@@ -46,6 +46,7 @@ try {
 
     if (-not $apiReady) {
         Write-Error "API startup timeout"
+        docker logs trade-migrator-e2e --tail 20
         docker logs trade-api-e2e --tail 20
         exit 1
     }
@@ -73,6 +74,8 @@ finally {
     Set-Location $rootPath
 
     if ($LASTEXITCODE -ne 0) {
+        Write-Information "--- MIGRATOR LOGS ---"
+        docker logs trade-migrator-e2e --tail 50
         Write-Information "--- API LOGS ---"
         docker logs trade-api-e2e --tail 50
         Write-Information "--- WORKER LOGS ---"

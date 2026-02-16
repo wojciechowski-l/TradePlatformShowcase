@@ -12,7 +12,11 @@ services:
     volumes:
       - sql_data:/var/opt/mssql
     healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Password123! -Q 'SELECT 1' -C -l 1 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Password123! -Q 'SELECT 1' -C -l 1 || exit 1"
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -85,6 +89,21 @@ services:
     volumes:
       - seq_data:/data
 
+  migrator:
+    build:
+      context: .
+      dockerfile: TradePlatform.Api/Dockerfile
+    container_name: trade-migrator
+    command: ["--migrate-only"]
+    environment:
+      - ConnectionStrings__DefaultConnection=Server=trade-sql;Database=TradePlatformDb;User Id=sa;Password=Password123!;TrustServerCertificate=True;
+      - Seq__ServerUrl=http://trade-seq
+    depends_on:
+      sql-server:
+        condition: service_healthy
+      seq:
+        condition: service_started
+
   api:
     build:
       context: .
@@ -106,6 +125,8 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
 
   worker:
     build:
@@ -123,6 +144,8 @@ services:
         condition: service_healthy
       seq:
         condition: service_started
+      migrator:
+        condition: service_completed_successfully
 
   client:
     build:

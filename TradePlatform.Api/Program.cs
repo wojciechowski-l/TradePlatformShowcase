@@ -114,14 +114,27 @@ builder.Services.AutoRegisterHandlersFromAssemblyOf<NotificationHandler>();
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
+if (args.Contains("--migrate-only"))
 {
+    using var scope = app.Services.CreateScope();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    logger.LogInformation("Starting database migration...");
     try
     {
-        scope.ServiceProvider.GetRequiredService<TradeContext>().Database.Migrate();
+        var dbContext = scope.ServiceProvider.GetRequiredService<TradeContext>();
+        await dbContext.Database.MigrateAsync();
+        logger.LogInformation("Database migration completed successfully.");
     }
-    catch { }
+    catch (Exception ex)
+    {
+        logger.LogCritical(ex, "Database migration failed.");
+        Environment.Exit(1);
+    }
+    return;
+}
 
+using (var scope = app.Services.CreateScope())
+{
     var bus = scope.ServiceProvider.GetRequiredService<IBus>();
     await bus.Subscribe<TransactionProcessedEvent>();
 }

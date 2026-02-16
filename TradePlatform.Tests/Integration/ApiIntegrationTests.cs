@@ -91,7 +91,7 @@ public class ApiIntegrationTests(TradePlatformTestFactory factory) : IClassFixtu
         {
             var context = scope.ServiceProvider.GetRequiredService<TradeContext>();
 
-            await context.Database.EnsureCreatedAsync(ct);
+            await context.Database.MigrateAsync(ct);
 
             var createOutboxSql = @"
                 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'RebusOutbox')
