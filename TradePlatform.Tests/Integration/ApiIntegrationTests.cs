@@ -139,6 +139,9 @@ public class ApiIntegrationTests(TradePlatformTestFactory factory) : IClassFixtu
         client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("TestScheme");
 
+        client.DefaultRequestHeaders.Add("X-Test-UserId", userId);
+        client.DefaultRequestHeaders.Add("X-Test-AccountId", sourceAccId);
+
         var request = new TransactionDto
         {
             SourceAccountId = sourceAccId,
@@ -190,9 +193,28 @@ public sealed class TestAuthHandler(
     UrlEncoder encoder)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
+    public const string UserIdHeader = "X-Test-UserId";
+    public const string AccountIdHeader = "X-Test-AccountId";
+
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        var claims = new[] { new Claim(ClaimTypes.Name, "IntegrationTestUser") };
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.Name, "IntegrationTestUser"),
+        };
+
+        if (Request.Headers.TryGetValue(UserIdHeader, out var userId) &&
+            !string.IsNullOrWhiteSpace(userId))
+        {
+            claims.Add(new Claim(ClaimTypes.NameIdentifier, userId!));
+        }
+
+        if (Request.Headers.TryGetValue(AccountIdHeader, out var accountId) &&
+            !string.IsNullOrWhiteSpace(accountId))
+        {
+            claims.Add(new Claim("urn:tradeplatform:accountid", accountId!));
+        }
+
         var identity = new ClaimsIdentity(claims, "Test");
         var principal = new ClaimsPrincipal(identity);
         var ticket = new AuthenticationTicket(principal, "TestScheme");
