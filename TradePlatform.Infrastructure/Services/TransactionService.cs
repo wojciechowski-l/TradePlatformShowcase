@@ -35,13 +35,11 @@ namespace TradePlatform.Infrastructure.Services
             {
                 var transactionRecord = new TransactionRecord
                 {
-                    Id = Guid.NewGuid(),
                     SourceAccountId = request.SourceAccountId,
                     TargetAccountId = request.TargetAccountId,
                     Amount = request.Amount,
                     Currency = Currency.FromCode(request.Currency),
                     Status = TransactionStatus.Pending,
-                    CreatedAtUtc = DateTime.UtcNow
                 };
 
                 var eventPayload = new TransactionCreatedEvent(
