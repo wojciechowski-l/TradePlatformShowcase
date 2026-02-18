@@ -19,25 +19,25 @@ ILogger<TransactionCreatedHandler> logger)
     {
         LogProcessing(logger, evt.TransactionId);
 
-        // Read outside the transaction (similar to original logic)
-        // This keeps the transaction short.
-        var transaction = await dbContext.Transactions
-            .FirstOrDefaultAsync(t => t.Id == evt.TransactionId);
-
-        if (transaction == null)
-        {
-            LogNotFound(logger, evt.TransactionId);
-            return;
-        }
-
-        if (transaction.Status == TransactionStatus.Processed)
-        {
-            LogAlreadyProcessed(logger, evt.TransactionId);
-            return;
-        }
+        var processed = false;
 
         await transactionScopeManager.ExecuteInTransactionAsync(async () =>
         {
+            var transaction = await dbContext.Transactions
+                .FirstOrDefaultAsync(t => t.Id == evt.TransactionId);
+
+            if (transaction == null)
+            {
+                LogNotFound(logger, evt.TransactionId);
+                return;
+            }
+
+            if (transaction.Status == TransactionStatus.Processed)
+            {
+                LogAlreadyProcessed(logger, evt.TransactionId);
+                return;
+            }
+
             transaction.Status = TransactionStatus.Processed;
 
             await dbContext.SaveChangesAsync();
@@ -50,9 +50,14 @@ ILogger<TransactionCreatedHandler> logger)
             );
 
             await bus.Publish(processedEvent);
+
+            processed = true;
         });
 
-        LogSuccess(logger, evt.TransactionId);
+        if (processed)
+        {
+            LogSuccess(logger, evt.TransactionId);
+        }
     }
 
     [LoggerMessage(LogLevel.Information, "Processing Transaction {TransactionId}")]
