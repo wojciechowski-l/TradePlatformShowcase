@@ -164,8 +164,14 @@ Runs the backend integration tests first. If they pass, spins up the Docker Comp
 
 ### 2. Start the Application Manually
 
+Copy the environment file and fill in your values:
 ```powershell
-docker-compose up -d --build
+cp .env.example .env
+```
+
+Then start the stack:
+```powershell
+docker compose up -d --build
 ```
 
 | Service | URL |

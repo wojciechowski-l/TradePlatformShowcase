@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+	  <UserSecretsId>dotnet-TradePlatform.Api-ae53209b-c373-4a59-adb0-013fe1d5d477</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

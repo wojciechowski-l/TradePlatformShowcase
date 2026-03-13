@@ -6,7 +6,7 @@ services:
     container_name: trade-sql
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "Password123!"
+      MSSQL_SA_PASSWORD: "${SQL_SA_PASSWORD}"
     ports:
       - "1433:1433"
     volumes:
@@ -15,7 +15,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Password123! -Q 'SELECT 1' -C -l 1 || exit 1"
+          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${SQL_SA_PASSWORD} -Q 'SELECT 1' -C -l 1 || exit 1"
         ]
       interval: 10s
       timeout: 5s
@@ -31,8 +31,8 @@ services:
       - "15672:15672"
       - "15692:15692"
     environment:
-      RABBITMQ_DEFAULT_USER: "guest"
-      RABBITMQ_DEFAULT_PASS: "guest"
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASS}"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
       - ./observability/enabled_plugins:/etc/rabbitmq/enabled_plugins
@@ -69,7 +69,7 @@ services:
     ports:
       - "3100:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       - GF_USERS_ALLOW_SIGN_UP=false
     depends_on:
       - prometheus
@@ -85,7 +85,7 @@ services:
       - "5341:80"
     environment:
       - ACCEPT_EULA=Y
-      - SEQ_FIRSTRUN_ADMINPASSWORD=Password123!
+      - SEQ_FIRSTRUN_ADMINPASSWORD=${SEQ_ADMIN_PASSWORD}
     volumes:
       - seq_data:/data
 
@@ -96,7 +96,7 @@ services:
     container_name: trade-migrator
     command: ["--migrate-only"]
     environment:
-      - ConnectionStrings__DefaultConnection=Server=trade-sql;Database=TradePlatformDb;User Id=sa;Password=Password123!;TrustServerCertificate=True;
+      - ConnectionStrings__DefaultConnection=Server=trade-sql;Database=TradePlatformDb;User Id=sa;Password=${SQL_SA_PASSWORD};TrustServerCertificate=True;
       - Seq__ServerUrl=http://trade-seq
     depends_on:
       sql-server:
@@ -112,8 +112,10 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - ConnectionStrings__DefaultConnection=Server=trade-sql;Database=TradePlatformDb;User Id=sa;Password=Password123!;TrustServerCertificate=True;
+      - ConnectionStrings__DefaultConnection=Server=trade-sql;Database=TradePlatformDb;User Id=sa;Password=${SQL_SA_PASSWORD};TrustServerCertificate=True;
       - RabbitMQ__Host=trade-rabbitmq
+      - RabbitMQ__Username=${RABBITMQ_USER}
+      - RabbitMQ__Password=${RABBITMQ_PASS}
       - Seq__ServerUrl=http://trade-seq
       - Redis__ConnectionString=trade-redis:6379
     depends_on:
@@ -134,8 +136,10 @@ services:
       dockerfile: TradePlatform.Worker/Dockerfile
     container_name: trade-worker
     environment:
-      - ConnectionStrings__DefaultConnection=Server=trade-sql;Database=TradePlatformDb;User Id=sa;Password=Password123!;TrustServerCertificate=True;
+      - ConnectionStrings__DefaultConnection=Server=trade-sql;Database=TradePlatformDb;User Id=sa;Password=${SQL_SA_PASSWORD};TrustServerCertificate=True;
       - RabbitMQ__Host=trade-rabbitmq
+      - RabbitMQ__Username=${RABBITMQ_USER}
+      - RabbitMQ__Password=${RABBITMQ_PASS}
       - Seq__ServerUrl=http://trade-seq
     depends_on:
       sql-server:
