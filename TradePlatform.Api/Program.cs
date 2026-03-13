@@ -148,10 +148,12 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("AllowFrontends");
 app.UseSerilogRequestLogging();
-app.MapHealthChecks("/health");
-app.MapPrometheusScrapingEndpoint();
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.MapHealthChecks("/health");
+app.MapPrometheusScrapingEndpoint();
+
 app.MapGroup("/api/auth").MapIdentityApi<ApplicationUser>();
 app.MapControllers();
 app.MapHub<TradeHub>("/hubs/trade");
