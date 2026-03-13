@@ -68,7 +68,7 @@ namespace TradePlatform.Tests.Unit
                 Currency = "USD"
             };
 
-            var result = await service.CreateTransactionAsync(request, TestContext.Current.CancellationToken);
+            var result = await service.CreateTransactionAsync(request, null, "test-user-id", TestContext.Current.CancellationToken);
 
             Assert.NotNull(result);
             Assert.Equal(TransactionStatus.Pending, result.Status);
@@ -135,7 +135,7 @@ namespace TradePlatform.Tests.Unit
             };
 
             await Assert.ThrowsAsync<DbUpdateException>(
-                async () => await service.CreateTransactionAsync(request, TestContext.Current.CancellationToken)
+                async() => await service.CreateTransactionAsync(request, null, "test-user-id", TestContext.Current.CancellationToken)
             );
 
             mockBus.Verify(

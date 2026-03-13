@@ -273,3 +273,54 @@ validator or a check constraint in the schema.
 
 **Trade-off:** Requires an EF Core value conversion to persist to the database. This is
 standard EF Core configuration and adds no meaningful complexity.
+
+---
+
+## ADR-013 — HTTP idempotency keys with database-enforced uniqueness
+
+**Status:** Implemented
+**Files:** `TradePlatform.Api/Controllers/TransactionsController.cs`,
+`TradePlatform.Infrastructure/Services/TransactionService.cs`,
+`TradePlatform.Core/Entities/IdempotencyKey.cs`,
+`TradePlatform.Infrastructure/Data/TradeContext.cs`,
+`Client/src/services/api.ts`, `Client/src/components/Dashboard/Dashboard.tsx`
+
+**Decision:** `POST /api/transactions` accepts an optional `Idempotency-Key` header
+(UUID). The key is stored in the `IdempotencyKeys` table, scoped per user, with a 24-hour
+TTL. The check, the `IdempotencyKey` row insert, and the `TransactionRecord` insert all
+occur inside the same `RebusSqlTransactionScopeManager` transaction. A `UNIQUE` index on
+`(Key, UserId)` is the enforcement point. The client generates the key once on form mount
+via `useRef` and rotates it only on success.
+
+**Reasoning:** Without this, a manual resubmit after a lost response (Failure Mode 2)
+creates a duplicate `TransactionRecord`. Application-level read-check-then-insert without
+a unique constraint is a TOCTOU race: two concurrent requests can both pass the read check
+and both commit. The UNIQUE index makes the database the race arbiter — the second commit
+throws `DbUpdateException` with SQL error 2601/2627, which the controller maps to
+`409 Conflict`. The feature is opt-in: requests without the header bypass the check and
+behave as before.
+
+**Alternatives considered:**
+- *Server-generated key returned on first response, supplied on retry:* Requires a
+  two-phase protocol and a client that knows it is retrying. Not compatible with the
+  manual-resubmit scenario where the client has no prior response to extract a key from.
+- *Application-layer check only (no unique constraint):* Subject to the TOCTOU race
+  under concurrent requests with the same key. Rejected.
+- *Redis-based key cache:* Adds a dependency for a single check already backed by SQL
+  Server. The `IdempotencyKeys` table participates in the same transaction as the domain
+  write, which a Redis check cannot. Rejected.
+
+**Key lifecycle:**
+- Generated: `crypto.randomUUID()` on form mount (`useRef` in `Dashboard`).
+- Transmitted: `Idempotency-Key` request header on every submit attempt.
+- Rotated: on successful `202 Accepted` response (next submission is a new intent).
+- Preserved: on any error (next click retries the same logical operation).
+- Expired: server-side, entries older than 24 hours are excluded from lookup. Cleanup
+  of expired rows is not yet automated; the `IX_IdempotencyKeys_CreatedAtUtc` index
+  supports an efficient future sweep job.
+
+**Trade-off:** Idempotency keys do not deduplicate submissions where the user intentionally
+submits the same transaction twice as two distinct operations (e.g., pays the same amount
+to the same account on two separate days). Because the key rotates on success, this is
+handled correctly — each successful submission produces a new key. The 24-hour TTL bounds
+the deduplication window.

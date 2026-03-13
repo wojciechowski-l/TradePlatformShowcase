@@ -45,8 +45,13 @@ not know this.
 
 **Recovery:** The Rebus Outbox forwarder on the next API instance will drain the entry
 and deliver `TransactionCreatedEvent` to the Worker. The client, having received no
-response, may retry — the duplicate submission will create a second `TransactionRecord`
-with a different ID. There is no idempotency key deduplication at the HTTP layer.
+response, may retry. If the client sends the same `Idempotency-Key` header value, the
+API will detect the key in the `IdempotencyKeys` table and return the original result
+without creating a second `TransactionRecord`. The check and the key insert occur inside
+the same SQL transaction as the `TransactionRecord` write; a `UNIQUE` index on
+`(Key, UserId)` is the enforcement point, closing the concurrent-request race.
+If no idempotency key is sent, the duplicate submission will create a second
+`TransactionRecord` as before — the feature is opt-in at the call site.
 
 ---
 

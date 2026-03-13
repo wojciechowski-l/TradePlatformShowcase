@@ -1,6 +1,7 @@
-﻿using System.Diagnostics.Metrics;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Rebus.Bus;
+using System.Diagnostics.Metrics;
 using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
@@ -29,10 +30,34 @@ namespace TradePlatform.Infrastructure.Services
             Message = "Created transaction {TransactionId} for {Amount} {Currency}")]
         private partial void LogTransactionCreated(Guid transactionId, decimal amount, string currency);
 
-        public async Task<CreateTransactionResult> CreateTransactionAsync(TransactionDto request, CancellationToken cancellationToken = default)
+        public async Task<CreateTransactionResult> CreateTransactionAsync(
+            TransactionDto request,
+            string? idempotencyKey,
+            string userId,
+            CancellationToken cancellationToken = default)
         {
             return await _transactionScopeManager.ExecuteInTransactionAsync(async () =>
             {
+                if (idempotencyKey is not null)
+                {
+                    var ttlCutoff = DateTime.UtcNow.AddHours(-24);
+                    var existing = await _context.IdempotencyKeys
+                        .FirstOrDefaultAsync(
+                            k => k.Key == idempotencyKey
+                              && k.UserId == userId
+                              && k.CreatedAtUtc > ttlCutoff,
+                            cancellationToken);
+
+                    if (existing is not null)
+                    {
+                        return new CreateTransactionResult
+                        {
+                            TransactionId = existing.TransactionId,
+                            Status = TransactionStatus.Pending
+                        };
+                    }
+                }
+
                 var transactionRecord = new TransactionRecord
                 {
                     SourceAccountId = request.SourceAccountId,
@@ -52,13 +77,23 @@ namespace TradePlatform.Infrastructure.Services
 
                 _context.Transactions.Add(transactionRecord);
 
+                if (idempotencyKey is not null)
+                {
+                    _context.IdempotencyKeys.Add(new IdempotencyKey
+                    {
+                        Key = idempotencyKey,
+                        UserId = userId,
+                        TransactionId = transactionRecord.Id
+                    });
+                }
+
                 await _context.SaveChangesAsync(cancellationToken);
 
                 await _bus.Send(eventPayload);
 
                 var tags = new KeyValuePair<string, object?>[]
                 {
-                new("currency", request.Currency)
+                    new("currency", request.Currency)
                 };
 
                 TradesCreatedCounter.Add(1, tags);

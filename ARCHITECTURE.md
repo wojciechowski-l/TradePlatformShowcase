@@ -98,7 +98,10 @@ the custom claim `urn:tradeplatform:accountid`, injected at token generation by
 **2. HTTP write — `POST /api/transactions`**
 Bearer token attached. `[Authorize]` gate validates the JWT. `TransactionsController`
 calls `IAccountOwnershipService.IsOwnerAsync` against `SourceAccountId`. Returns `403`
-if the caller does not own the account.
+if the caller does not own the account. If an `Idempotency-Key` header is present, the
+key is passed through to `TransactionService`; deduplication occurs inside the
+transaction scope (step 3). A concurrent duplicate that loses the `UNIQUE` constraint
+race returns `409 Conflict`.
 
 **3. Atomic write — `TransactionService` inside `RebusSqlTransactionScopeManager`**
 
@@ -115,7 +118,11 @@ await rebusScope.CompleteAsync();   // marks outbox entry for forwarding
 await transaction.CommitAsync();    // single SQL commit: record + outbox entry
 ```
 
-The `TransactionRecord` (Status = `Pending`) and the outbox entry are committed atomically.
+The `TransactionRecord` (Status = `Pending`), the `IdempotencyKey` row (when a key is
+present), and the outbox entry are committed atomically. The `UNIQUE` index on
+`(Key, UserId)` in `IdempotencyKeys` enforces exactly-once semantics at the database
+level for keyed requests. If the key already exists (a retry of a previously committed
+request), the handler returns the stored `TransactionId` immediately without a new insert.
 
 **4. Outbox forwarder (background, Rebus)**
 After the commit, the Rebus background forwarder reads from `RebusOutbox` and publishes

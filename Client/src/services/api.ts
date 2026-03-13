@@ -90,25 +90,28 @@ export const registerUser = async (creds: RegisterRequest): Promise<void> => {
     }
 };
 
-export const submitTransaction = async (data: TransactionRequest, token: string): Promise<TransactionResponse> => {
+export const submitTransaction = async (
+    data: TransactionRequest,
+    token: string,
+    idempotencyKey: string = crypto.randomUUID()
+): Promise<TransactionResponse> => {
     const response = await fetch(`${API_BASE_URL}/api/transactions`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${token}`,
+            'Idempotency-Key': idempotencyKey
         },
         body: JSON.stringify(data),
     });
 
     if (!response.ok) {
         if (response.status === 401) throw new Error("Unauthorized: Session expired");
+        if (response.status === 409) throw new Error("Transaction already processing. Please wait.");
 
         if (response.status === 400) {
             const errorData = await response.json();
-
-            if (errorData.errors) {
-                throw new ApiValidationError("Validation Failed", errorData.errors);
-            }
+            if (errorData.errors) throw new ApiValidationError("Validation Failed", errorData.errors);
         }
         throw new Error('Transaction submission failed');
     }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Box, Typography, Alert, Snackbar, CircularProgress } from '@mui/material';
 import { CheckCircle as SuccessIcon } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
@@ -22,6 +22,8 @@ export const Dashboard: React.FC = () => {
 
     const [myAccountId, setMyAccountId] = useState<string>(''); 
     const [loadingAccount, setLoadingAccount] = useState(true);
+
+    const idempotencyKeyRef = useRef(crypto.randomUUID());
 
     if (!token) return null;
 
@@ -95,8 +97,9 @@ export const Dashboard: React.FC = () => {
         setGlobalError(null);
         setLastId(null);
         try {
-            const result = await submitTransaction(data, token);
+            const result = await submitTransaction(data, token, idempotencyKeyRef.current);
             setLastId(result.id);
+            idempotencyKeyRef.current = crypto.randomUUID();
         } catch (err: unknown) {
             if (err instanceof ApiValidationError) {
                 setErrors(err.validationErrors);

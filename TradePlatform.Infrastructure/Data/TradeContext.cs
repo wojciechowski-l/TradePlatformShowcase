@@ -11,6 +11,7 @@ namespace TradePlatform.Infrastructure.Data
     {
         public DbSet<TransactionRecord> Transactions { get; set; }
         public DbSet<Account> Accounts { get; set; }
+        public DbSet<IdempotencyKey> IdempotencyKeys { get; set; }
 
         public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
         {
@@ -80,6 +81,20 @@ namespace TradePlatform.Infrastructure.Data
                 .Property(a => a.Currency)
                 .HasConversion(c => c.Code, s => Currency.FromCode(s))
                 .HasMaxLength(3);
+
+            modelBuilder.Entity<IdempotencyKey>()
+                .Property(k => k.Key)
+                .HasMaxLength(36)
+                .IsRequired();
+
+            modelBuilder.Entity<IdempotencyKey>()
+                .Property(k => k.UserId)
+                .HasMaxLength(450)
+                .IsRequired();
+
+            modelBuilder.Entity<IdempotencyKey>()
+                .HasIndex(k => new { k.Key, k.UserId })
+                .IsUnique();
         }
     }
 }
