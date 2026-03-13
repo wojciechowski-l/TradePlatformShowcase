@@ -48,8 +48,19 @@ namespace TradePlatform.Infrastructure.Data
                 .HasConversion(c => c.Code, s => Currency.FromCode(s))
                 .HasMaxLength(3);
 
-            modelBuilder.Entity<Account>()
-                .HasKey(a => a.Id);
+            modelBuilder.HasSequence<int>("AccountIdSeq")
+                .StartsAt(10000)
+                .IncrementsBy(1);
+
+            modelBuilder.Entity<Account>(builder =>
+            {
+                builder.HasKey(a => a.Id);
+
+                builder.Property(a => a.Id)
+                       .HasMaxLength(50)
+                       .ValueGeneratedOnAdd()
+                       .HasDefaultValueSql("CONCAT('ACC-', CAST(NEXT VALUE FOR AccountIdSeq AS VARCHAR(10)))");
+            });
 
             modelBuilder.Entity<Account>()
                 .HasOne(a => a.Owner)

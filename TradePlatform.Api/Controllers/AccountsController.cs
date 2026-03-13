@@ -40,9 +40,8 @@ namespace TradePlatform.Api.Controllers
 
             var newAccount = new Account
             {
-                Id = $"ACC-{new Random().Next(10000, 99999)}",
                 OwnerId = userId!,
-                Currency = Currency.FromCode("USD"),
+                Currency = Currency.FromCode("USD")
             };
 
             context.Accounts.Add(newAccount);

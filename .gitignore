@@ -9,13 +9,11 @@ obj/
 node_modules/
 dist/
 .env
-coverage/
-cypress/videos/
-cypress/screenshots/
 
 # Playwirght
 playwright-report/
 test-results/
+TestResults/
 
 # OS
 .DS_Store

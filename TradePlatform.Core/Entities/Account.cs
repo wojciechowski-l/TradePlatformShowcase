@@ -7,7 +7,7 @@ namespace TradePlatform.Core.Entities
     {
         [Key]
         [MaxLength(50)]
-        public string Id { get; set; } = string.Empty;
+        public string Id { get; set; } = null!;
 
         [Required]
         public string OwnerId { get; set; } = string.Empty;
