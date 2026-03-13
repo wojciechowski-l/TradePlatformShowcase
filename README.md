@@ -16,6 +16,14 @@ It exists to demonstrate:
 
 ---
 
+## Architecture Documentation
+
+- Architecture.md — runtime topology, request lifecycle, identity model, scaling
+- Decisions.md — architecture decision records (ADR-001 through ADR-012)
+- FailureModes.md — failure analysis, recovery behaviour, known gaps
+
+---
+
 ## Key Code Highlights
 
 If you are reviewing this repository, the most significant architectural patterns are located in the following files:
