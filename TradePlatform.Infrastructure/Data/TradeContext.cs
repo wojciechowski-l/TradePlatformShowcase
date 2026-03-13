@@ -34,6 +34,11 @@ namespace TradePlatform.Infrastructure.Data
                 .HasMaxLength(50);
 
             modelBuilder.Entity<TransactionRecord>()
+                .Property(t => t.TargetAccountId)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            modelBuilder.Entity<TransactionRecord>()
                 .HasOne(t => t.SourceAccount)
                 .WithMany()
                 .HasForeignKey(t => t.SourceAccountId)
