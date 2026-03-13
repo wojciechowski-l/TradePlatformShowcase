@@ -26,10 +26,10 @@ namespace TradePlatform.Tests.Unit
             mockContext.Setup(c => c.Transactions).Returns(transactionsDbSetMock.Object);
 
             mockContext
-                .Setup(c => c.BeginTransactionAsync(default))
+                .Setup(c => c.BeginTransactionAsync(It.IsAny<CancellationToken>()))
                 .ReturnsAsync(transactionMock.Object);
 
-            mockContext.Setup(c => c.SaveChangesAsync(default)).ReturnsAsync(1);
+            mockContext.Setup(c => c.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
             return mockContext;
         }
@@ -37,13 +37,10 @@ namespace TradePlatform.Tests.Unit
         private static Mock<ITransactionScopeManager> CreateMockTransactionScopeManager()
         {
             var mock = new Mock<ITransactionScopeManager>();
-
-            mock.Setup(m => m.ExecuteInTransactionAsync(It.IsAny<Func<Task<CreateTransactionResult>>>()))
-                .Returns((Func<Task<CreateTransactionResult>> action) => action());
-
-            mock.Setup(m => m.ExecuteInTransactionAsync(It.IsAny<Func<Task>>()))
-                .Returns((Func<Task> action) => action());
-
+            mock.Setup(m => m.ExecuteInTransactionAsync(It.IsAny<Func<Task<CreateTransactionResult>>>(), It.IsAny<CancellationToken>()))
+                .Returns((Func<Task<CreateTransactionResult>> action, CancellationToken _) => action());
+            mock.Setup(m => m.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
+                .Returns((Func<Task> action, CancellationToken _) => action());
             return mock;
         }
 
@@ -71,7 +68,7 @@ namespace TradePlatform.Tests.Unit
                 Currency = "USD"
             };
 
-            var result = await service.CreateTransactionAsync(request);
+            var result = await service.CreateTransactionAsync(request, TestContext.Current.CancellationToken);
 
             Assert.NotNull(result);
             Assert.Equal(TransactionStatus.Pending, result.Status);
@@ -94,7 +91,7 @@ namespace TradePlatform.Tests.Unit
                 Times.Once
             );
 
-            mockContext.Verify(c => c.SaveChangesAsync(default), Times.Once);
+            mockContext.Verify(c => c.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
 
             var logEntry = mockLogger.Invocations.FirstOrDefault(i =>
                 i.Method.Name == "Log" &&
@@ -120,7 +117,7 @@ namespace TradePlatform.Tests.Unit
             var mockTransactionManager = CreateMockTransactionScopeManager();
 
             mockContext
-                .Setup(c => c.SaveChangesAsync(default))
+                .Setup(c => c.SaveChangesAsync(It.IsAny<CancellationToken>()))
                 .ThrowsAsync(new DbUpdateException("Database constraint violation"));
 
             var service = new TransactionService(
@@ -138,7 +135,7 @@ namespace TradePlatform.Tests.Unit
             };
 
             await Assert.ThrowsAsync<DbUpdateException>(
-                async () => await service.CreateTransactionAsync(request)
+                async () => await service.CreateTransactionAsync(request, TestContext.Current.CancellationToken)
             );
 
             mockBus.Verify(

@@ -20,8 +20,8 @@ namespace TradePlatform.Tests.Worker
         private static Mock<ITransactionScopeManager> CreateMockTransactionScopeManager()
         {
             var mock = new Mock<ITransactionScopeManager>();
-            mock.Setup(m => m.ExecuteInTransactionAsync(It.IsAny<Func<Task>>()))
-                .Returns((Func<Task> action) => action());
+            mock.Setup(m => m.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
+                .Returns((Func<Task> action, CancellationToken _) => action());
             return mock;
         }
 

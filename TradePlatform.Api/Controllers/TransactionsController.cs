@@ -25,7 +25,7 @@ namespace TradePlatform.Api.Controllers
                 return Forbid();
             }
 
-            var result = await _transactionService.CreateTransactionAsync(request);
+            var result = await _transactionService.CreateTransactionAsync(request, cancellationToken);
 
             return Accepted(new { id = result.TransactionId, status = result.Status });
         }

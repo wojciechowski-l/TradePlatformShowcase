@@ -29,7 +29,7 @@ namespace TradePlatform.Infrastructure.Services
             Message = "Created transaction {TransactionId} for {Amount} {Currency}")]
         private partial void LogTransactionCreated(Guid transactionId, decimal amount, string currency);
 
-        public async Task<CreateTransactionResult> CreateTransactionAsync(TransactionDto request)
+        public async Task<CreateTransactionResult> CreateTransactionAsync(TransactionDto request, CancellationToken cancellationToken = default)
         {
             return await _transactionScopeManager.ExecuteInTransactionAsync(async () =>
             {
@@ -52,7 +52,7 @@ namespace TradePlatform.Infrastructure.Services
 
                 _context.Transactions.Add(transactionRecord);
 
-                await _context.SaveChangesAsync();
+                await _context.SaveChangesAsync(cancellationToken);
 
                 await _bus.Send(eventPayload);
 
@@ -71,7 +71,7 @@ namespace TradePlatform.Infrastructure.Services
                     TransactionId = transactionRecord.Id,
                     Status = TransactionStatus.Pending
                 };
-            });
+            }, cancellationToken);
         }
     }
 }
