@@ -25,14 +25,21 @@ namespace TradePlatform.Infrastructure.Services
 
             var cacheKey = $"ownership:{userId}:{accountId}";
 
-            return await cache.GetOrCreateAsync(cacheKey, async entry =>
+            if (cache.TryGetValue(cacheKey, out bool cachedResult))
             {
-                entry.AbsoluteExpirationRelativeToNow = CacheTtl;
+                return cachedResult;
+            }
 
-                return await context.Accounts
-                    .AsNoTracking()
-                    .AnyAsync(a => a.Id == accountId && a.OwnerId == userId, cancellationToken);
-            });
+            var isOwner = await context.Accounts
+                .AsNoTracking()
+                .AnyAsync(a => a.Id == accountId && a.OwnerId == userId, cancellationToken);
+
+            if (isOwner)
+            {
+                cache.Set(cacheKey, true, CacheTtl);
+            }
+
+            return isOwner;
         }
     }
 }
