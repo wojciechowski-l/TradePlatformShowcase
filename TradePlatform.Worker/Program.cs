@@ -54,7 +54,7 @@ builder.Services.AddRebus(configure =>
         .Logging(l => l.Serilog())
         .Transport(t => t.UseRabbitMq(rabbitUri, MessagingConstants.OrdersQueue))
         .Outbox(o => o.StoreInSqlServer(connectionString, "RebusOutbox"))
-        .Routing(r => r.TypeBased().Map<TransactionUpdateDto>(MessagingConstants.NotificationsQueue))
+        .Routing(r => r.TypeBased())
         .Options(o =>
         {
             o.SetNumberOfWorkers(5);
