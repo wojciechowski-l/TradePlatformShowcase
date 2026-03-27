@@ -16,9 +16,7 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": [
-    "src", 
-    "vite.config.ts",        
-    "playwright.config.ts"
+    "src"
   ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
