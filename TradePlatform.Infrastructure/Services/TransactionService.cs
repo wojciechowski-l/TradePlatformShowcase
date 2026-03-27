@@ -50,10 +50,16 @@ namespace TradePlatform.Infrastructure.Services
 
                     if (existing is not null)
                     {
+                        var status = await _context.Transactions
+                            .AsNoTracking()
+                            .Where(t => t.Id == existing.TransactionId)
+                            .Select(t => (TransactionStatus?)t.Status)
+                            .FirstOrDefaultAsync(cancellationToken);
+
                         return new CreateTransactionResult
                         {
                             TransactionId = existing.TransactionId,
-                            Status = TransactionStatus.Pending
+                            Status = status ?? TransactionStatus.Pending
                         };
                     }
                 }

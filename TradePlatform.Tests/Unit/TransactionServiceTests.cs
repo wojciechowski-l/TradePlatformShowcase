@@ -7,6 +7,8 @@ using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
 using TradePlatform.Core.Interfaces;
+using TradePlatform.Core.ValueObjects;
+using TradePlatform.Infrastructure.Data;
 using TradePlatform.Infrastructure.Services;
 
 namespace TradePlatform.Tests.Unit
@@ -145,6 +147,128 @@ namespace TradePlatform.Tests.Unit
                 ),
                 Times.Never
             );
+        }
+
+        [Fact]
+        public async Task CreateTransactionAsync_Should_Return_Processed_Status_On_Idempotent_Replay()
+        {
+            var options = new DbContextOptionsBuilder<TradeContext>()
+                .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+                .Options;
+
+            await using var context = new TradeContext(options);
+
+            var transactionId = Guid.NewGuid();
+            context.Transactions.Add(new TransactionRecord
+            {
+                Id = transactionId,
+                SourceAccountId = "ACC_001",
+                TargetAccountId = "ACC_002",
+                Amount = 100m,
+                Currency = Currency.FromCode("USD"),
+                Status = TransactionStatus.Processed
+            });
+
+            context.IdempotencyKeys.Add(new IdempotencyKey
+            {
+                Key = "replay-key",
+                UserId = "test-user-id",
+                TransactionId = transactionId,
+                CreatedAtUtc = DateTime.UtcNow
+            });
+
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+            var mockBus = new Mock<IBus>();
+            var mockLogger = new Mock<ILogger<TransactionService>>();
+            var mockTransactionManager = CreateMockTransactionScopeManager();
+
+            var service = new TransactionService(
+                context,
+                mockBus.Object,
+                mockTransactionManager.Object,
+                mockLogger.Object);
+
+            var request = new TransactionDto
+            {
+                SourceAccountId = "ACC_001",
+                TargetAccountId = "ACC_002",
+                Amount = 100m,
+                Currency = "USD"
+            };
+
+            var result = await service.CreateTransactionAsync(
+                request,
+                "replay-key",
+                "test-user-id",
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(transactionId, result.TransactionId);
+            Assert.Equal(TransactionStatus.Processed, result.Status);
+            mockBus.Verify(
+                m => m.Send(It.IsAny<TransactionCreatedEvent>(), It.IsAny<IDictionary<string, string>>()),
+                Times.Never);
+        }
+
+        [Fact]
+        public async Task CreateTransactionAsync_Should_Return_Pending_Status_On_Idempotent_Replay_When_Transaction_Is_Still_Pending()
+        {
+            var options = new DbContextOptionsBuilder<TradeContext>()
+                .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+                .Options;
+
+            await using var context = new TradeContext(options);
+
+            var transactionId = Guid.NewGuid();
+            context.Transactions.Add(new TransactionRecord
+            {
+                Id = transactionId,
+                SourceAccountId = "ACC_003",
+                TargetAccountId = "ACC_004",
+                Amount = 250m,
+                Currency = Currency.FromCode("USD"),
+                Status = TransactionStatus.Pending
+            });
+
+            context.IdempotencyKeys.Add(new IdempotencyKey
+            {
+                Key = "pending-replay-key",
+                UserId = "test-user-id",
+                TransactionId = transactionId,
+                CreatedAtUtc = DateTime.UtcNow
+            });
+
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+            var mockBus = new Mock<IBus>();
+            var mockLogger = new Mock<ILogger<TransactionService>>();
+            var mockTransactionManager = CreateMockTransactionScopeManager();
+
+            var service = new TransactionService(
+                context,
+                mockBus.Object,
+                mockTransactionManager.Object,
+                mockLogger.Object);
+
+            var request = new TransactionDto
+            {
+                SourceAccountId = "ACC_003",
+                TargetAccountId = "ACC_004",
+                Amount = 250m,
+                Currency = "USD"
+            };
+
+            var result = await service.CreateTransactionAsync(
+                request,
+                "pending-replay-key",
+                "test-user-id",
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(transactionId, result.TransactionId);
+            Assert.Equal(TransactionStatus.Pending, result.Status);
+            mockBus.Verify(
+                m => m.Send(It.IsAny<TransactionCreatedEvent>(), It.IsAny<IDictionary<string, string>>()),
+                Times.Never);
         }
     }
 }

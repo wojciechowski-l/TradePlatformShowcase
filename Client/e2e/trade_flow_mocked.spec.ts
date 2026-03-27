@@ -39,13 +39,9 @@ test.describe('Trade Platform UI (Mocked Backend)', () => {
     await page.getByLabel('Email').fill(email);
     await page.getByLabel('Password').fill(password);
 
-    page.once('dialog', async dialog => {
-      expect(dialog.message()).toContain('Registration Successful');
-      await dialog.accept();
-    });
-
     await page.getByRole('button', { name: 'Register' }).click();
 
+    await expect(page.getByRole('alert')).toContainText('Registration Successful');
     await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
     await page.getByLabel('Email').fill(email);
     await page.getByLabel('Password').fill(password);
