@@ -19,4 +19,10 @@
         Processed,
         Failed
     }
+
+    public enum AccountActivityDirection
+    {
+        Outgoing,
+        Incoming
+    }
 }

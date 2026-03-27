@@ -10,20 +10,28 @@ public partial class NotificationHandler(IHubContext<TradeHub> hubContext, ILogg
 {
     public async Task Handle(TransactionProcessedEvent message)
     {
-        if (!string.IsNullOrEmpty(message.AccountId))
+        var accountIds = new[] { message.SourceAccountId, message.TargetAccountId }
+            .Where(accountId => !string.IsNullOrWhiteSpace(accountId))
+            .Distinct()
+            .ToArray();
+
+        foreach (var accountId in accountIds)
         {
             var dto = new TransactionUpdateDto
             {
                 TransactionId = message.TransactionId,
                 Status = message.Status,
-                AccountId = message.AccountId,
+                AccountId = accountId,
                 UpdatedAtUtc = message.ProcessedAtUtc
             };
 
-            await hubContext.Clients.Group(message.AccountId)
+            await hubContext.Clients.Group(accountId)
                 .SendAsync("ReceiveStatusUpdate", dto);
+        }
 
-            LogProcessing(logger, message.TransactionId, message.AccountId);
+        foreach (var accountId in accountIds)
+        {
+            LogProcessing(logger, message.TransactionId, accountId);
         }
     }
 

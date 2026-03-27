@@ -13,6 +13,7 @@ It exists to demonstrate:
 - **Ownership-Enforced API**: An authorisation model that prevents users from transacting on accounts they do not own, enforced at both the HTTP and SignalR boundaries.
 - **Infrastructure-Backed Testing**: Using Testcontainers for integration tests (SQL Server & RabbitMQ) and a full Docker Compose environment for E2E validation.
 - **Observability**: OpenTelemetry tracing across service boundaries, Prometheus metrics, Grafana dashboards, and structured logging via Seq.
+- **CQRS-lite Projection**: A read-side account activity feed maintained asynchronously from bus events, with a rebuild path for replaying the projection from the write-side source of truth.
 
 ---
 
@@ -110,7 +111,14 @@ A complete three-pillar observability stack:
 - **Metrics**: Runtime and business metrics (trade volume, trades/sec, queue depth, CPU, GC pressure) exposed via Prometheus scrape endpoints.
 - **Visualisation**: Grafana is configured via provisioning-as-code — dashboards load automatically on startup with no manual setup.
 
-### 7. Domain Integrity & Type Safety
+### 7. CQRS-lite Read Model
+
+The API subscribes to `TransactionSubmittedEvent` and `TransactionProcessedEvent` and projects them into a dedicated `AccountActivityProjections` table. The frontend reads this table via `GET /api/accounts/my-account/activity`, which makes eventual consistency visible: a transaction is accepted first, then appears in the feed as the projection catches up, then transitions to its terminal status.
+
+- **Projection idempotency**: repeated `TransactionProcessedEvent` deliveries are ignored once the projection is already in the target terminal status.
+- **Replay story**: in development/test, `POST /api/maintenance/projections/account-activity/rebuild` rebuilds the read model from `Transactions`. A convenience script is included at `./rebuild-account-activity-projection.ps1`.
+
+### 8. Domain Integrity & Type Safety
 
 - **Value Objects**: `Currency` is a strongly-typed value object rather than a raw string, enforcing valid ISO format at the boundary of the domain.
 - **Referential Integrity**: Database schema enforces foreign key relationships between `TransactionRecord` and `Account`.

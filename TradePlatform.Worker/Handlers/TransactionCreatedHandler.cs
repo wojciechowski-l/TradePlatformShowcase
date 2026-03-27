@@ -45,6 +45,9 @@ ILogger<TransactionCreatedHandler> logger)
             var processedEvent = new TransactionProcessedEvent(
                 evt.TransactionId,
                 evt.SourceAccountId,
+                evt.TargetAccountId,
+                evt.Amount,
+                evt.Currency,
                 TransactionStatus.Processed,
                 DateTime.UtcNow
             );

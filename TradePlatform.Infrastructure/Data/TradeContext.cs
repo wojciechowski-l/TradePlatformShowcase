@@ -12,6 +12,7 @@ namespace TradePlatform.Infrastructure.Data
         public DbSet<TransactionRecord> Transactions { get; set; }
         public DbSet<Account> Accounts { get; set; }
         public DbSet<IdempotencyKey> IdempotencyKeys { get; set; }
+        public DbSet<AccountActivityProjection> AccountActivityProjections { get; set; }
 
         public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
         {
@@ -95,6 +96,38 @@ namespace TradePlatform.Infrastructure.Data
             modelBuilder.Entity<IdempotencyKey>()
                 .HasIndex(k => new { k.Key, k.UserId })
                 .IsUnique();
+
+            modelBuilder.Entity<AccountActivityProjection>(builder =>
+            {
+                builder.HasKey(p => p.Id);
+
+                builder.Property(p => p.AccountId)
+                    .HasMaxLength(50)
+                    .IsRequired();
+
+                builder.Property(p => p.CounterpartyAccountId)
+                    .HasMaxLength(50)
+                    .IsRequired();
+
+                builder.Property(p => p.Amount)
+                    .HasPrecision(18, 2);
+
+                builder.Property(p => p.Currency)
+                    .HasMaxLength(3)
+                    .IsRequired();
+
+                builder.Property(p => p.Direction)
+                    .HasConversion<string>()
+                    .HasMaxLength(450);
+
+                builder.Property(p => p.Status)
+                    .HasConversion<string>();
+
+                builder.HasIndex(p => new { p.AccountId, p.CreatedAtUtc });
+
+                builder.HasIndex(p => new { p.TransactionId, p.AccountId, p.Direction })
+                    .IsUnique();
+            });
         }
     }
 }

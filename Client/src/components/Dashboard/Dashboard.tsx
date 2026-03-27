@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Box, Typography, Alert, Snackbar, CircularProgress } from '@mui/material';
+import { Box, Typography, Alert, Snackbar, CircularProgress, Chip, Divider, List, ListItem, ListItemText, Stack } from '@mui/material';
 import { CheckCircle as SuccessIcon } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 import { useSignalR } from '../../context/SignalRContext';
 import { 
     submitTransaction, 
+    getMyAccountActivity,
     getMyAccount, 
     provisionAccount, 
     ApiValidationError,
-    TransactionStatus
+    TransactionStatus,
+    AccountActivityDto,
+    AccountActivityDirection
 } from '../../services/api';
 import { TransactionForm, TransactionFormData } from './TransactionForm';
 
@@ -19,6 +22,10 @@ export const Dashboard: React.FC = () => {
     const [lastId, setLastId] = useState<string | null>(null);
     const [notification, setNotification] = useState<string | null>(null);
     const [globalError, setGlobalError] = useState<string | null>(null);
+    const [activityFeed, setActivityFeed] = useState<AccountActivityDto[]>([]);
+    const [feedError, setFeedError] = useState<string | null>(null);
+    const [isRefreshingFeed, setIsRefreshingFeed] = useState(false);
+    const [pendingProjectionId, setPendingProjectionId] = useState<string | null>(null);
 
     const [myAccountId, setMyAccountId] = useState<string>(''); 
     const [loadingAccount, setLoadingAccount] = useState(true);
@@ -26,6 +33,29 @@ export const Dashboard: React.FC = () => {
     const idempotencyKeyRef = useRef(crypto.randomUUID());
 
     if (!token) return null;
+
+    const refreshActivityFeed = async (signal?: AbortSignal) => {
+        setIsRefreshingFeed(true);
+        setFeedError(null);
+
+        try {
+            const items = await getMyAccountActivity(token, signal);
+            setActivityFeed(items);
+
+            if (pendingProjectionId && items.some(item => item.transactionId === pendingProjectionId)) {
+                setPendingProjectionId(null);
+            }
+        } catch (err: unknown) {
+            const isAbort = err instanceof Error && err.name === 'AbortError';
+            if (!isAbort) {
+                setFeedError("Could not refresh the activity projection.");
+            }
+        } finally {
+            if (!signal?.aborted) {
+                setIsRefreshingFeed(false);
+            }
+        }
+    };
 
     useEffect(() => {
         const controller = new AbortController();
@@ -71,6 +101,17 @@ export const Dashboard: React.FC = () => {
     }, [token]);
 
     useEffect(() => {
+        if (!myAccountId) return;
+
+        const controller = new AbortController();
+        void refreshActivityFeed(controller.signal);
+
+        return () => {
+            controller.abort();
+        };
+    }, [myAccountId]);
+
+    useEffect(() => {
         if (connection && myAccountId) {
             const joinGroup = () => {
                 connection.invoke("JoinAccountGroup", myAccountId)
@@ -88,10 +129,29 @@ export const Dashboard: React.FC = () => {
             connection.on("ReceiveStatusUpdate", (update: any) => {
                 const statusLabel = TransactionStatus[update.status] || update.status;
                 setNotification(`Transaction ${update.transactionId} is now ${statusLabel}!`);
+                void refreshActivityFeed();
             });
         }
         return () => { connection?.off("ReceiveStatusUpdate"); };
     }, [connection]);
+
+    useEffect(() => {
+        if (!pendingProjectionId) return;
+
+        let attempts = 0;
+        const interval = window.setInterval(() => {
+            attempts += 1;
+            void refreshActivityFeed();
+
+            if (attempts >= 12) {
+                window.clearInterval(interval);
+            }
+        }, 1000);
+
+        return () => {
+            window.clearInterval(interval);
+        };
+    }, [pendingProjectionId]);
 
     const handleSubmit = async (data: TransactionFormData, setErrors: (errors: any) => void) => {
         setGlobalError(null);
@@ -99,6 +159,7 @@ export const Dashboard: React.FC = () => {
         try {
             const result = await submitTransaction(data, token, idempotencyKeyRef.current);
             setLastId(result.id);
+            setPendingProjectionId(result.id);
             idempotencyKeyRef.current = crypto.randomUUID();
         } catch (err: unknown) {
             if (err instanceof ApiValidationError) {
@@ -133,6 +194,69 @@ export const Dashboard: React.FC = () => {
                     <strong>Success!</strong> Transaction ID: {lastId}
                 </Alert>
             )}
+
+            {pendingProjectionId && (
+                <Alert severity="info" sx={{ mt: 3 }}>
+                    Transaction accepted. The activity feed is waiting for the async projection to catch up.
+                </Alert>
+            )}
+
+            <Box sx={{ mt: 4 }}>
+                <Stack direction="row" spacing={1} sx={{ mb: 2, alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Typography variant="h6">Activity Feed</Typography>
+                    {isRefreshingFeed && <CircularProgress size={18} />}
+                </Stack>
+
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    This list is served from the read model and updates asynchronously from bus events.
+                </Typography>
+
+                {feedError && <Alert severity="warning" sx={{ mb: 2 }}>{feedError}</Alert>}
+
+                {activityFeed.length === 0 ? (
+                    <Alert severity="info">No projected activity yet. Submit a transaction to populate the read side.</Alert>
+                ) : (
+                    <List disablePadding>
+                        {activityFeed.map((item, index) => (
+                            <React.Fragment key={`${item.transactionId}-${item.direction}`}>
+                                <ListItem disableGutters sx={{ py: 1.5 }}>
+                                    <ListItemText
+                                        primary={
+                                            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                                                <Typography variant="subtitle2">
+                                                    {item.direction === AccountActivityDirection.Outgoing ? 'Outgoing' : 'Incoming'} {item.amount} {item.currency}
+                                                </Typography>
+                                                <Chip
+                                                    size="small"
+                                                    label={TransactionStatus[item.status]}
+                                                    color={item.status === TransactionStatus.Processed ? 'success' : 'warning'}
+                                                    variant="outlined"
+                                                />
+                                            </Stack>
+                                        }
+                                        secondary={
+                                            <>
+                                                <Typography component="span" variant="body2" color="text.primary">
+                                                    Counterparty: {item.counterpartyAccountId}
+                                                </Typography>
+                                                <br />
+                                                <Typography component="span" variant="caption" color="text.secondary">
+                                                    Tx {item.transactionId} · Created {new Date(item.createdAtUtc).toLocaleString()}
+                                                </Typography>
+                                                <br />
+                                                <Typography component="span" variant="caption" color="text.secondary">
+                                                    Last projection event {new Date(item.lastEventUtc).toLocaleString()}
+                                                </Typography>
+                                            </>
+                                        }
+                                    />
+                                </ListItem>
+                                {index < activityFeed.length - 1 && <Divider component="li" />}
+                            </React.Fragment>
+                        ))}
+                    </List>
+                )}
+            </Box>
 
             <Snackbar 
                 open={!!notification} autoHideDuration={6000} 

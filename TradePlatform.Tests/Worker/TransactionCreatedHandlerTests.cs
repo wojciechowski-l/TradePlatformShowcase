@@ -101,7 +101,10 @@ namespace TradePlatform.Tests.Worker
                     It.Is<TransactionProcessedEvent>(e =>
                         e.TransactionId == txId &&
                         e.Status == TransactionStatus.Processed &&
-                        e.AccountId == srcAccId),
+                        e.SourceAccountId == srcAccId &&
+                        e.TargetAccountId == tgtAccId &&
+                        e.Amount == 50 &&
+                        e.Currency == "USD"),
                     It.IsAny<IDictionary<string, string>>()
                 ),
                 Times.Once

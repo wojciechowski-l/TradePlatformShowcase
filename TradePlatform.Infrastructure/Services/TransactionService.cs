@@ -96,6 +96,13 @@ namespace TradePlatform.Infrastructure.Services
                 await _context.SaveChangesAsync(cancellationToken);
 
                 await _bus.Send(eventPayload);
+                await _bus.Publish(new TransactionSubmittedEvent(
+                    transactionRecord.Id,
+                    transactionRecord.SourceAccountId,
+                    transactionRecord.TargetAccountId,
+                    transactionRecord.Amount,
+                    transactionRecord.Currency.Code,
+                    transactionRecord.CreatedAtUtc));
 
                 var tags = new KeyValuePair<string, object?>[]
                 {

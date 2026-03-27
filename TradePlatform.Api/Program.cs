@@ -67,6 +67,7 @@ builder.Services.AddOpenTelemetry()
 .AddSource("Rebus"));
 
 builder.Services.AddScoped<IAccountOwnershipService, DbAccountOwnershipService>();
+builder.Services.AddScoped<IAccountActivityProjectionRebuilder, AccountActivityProjectionRebuilder>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
 builder.Services.AddScoped<ITransactionScopeManager, RebusSqlTransactionScopeManager>();
 
@@ -138,6 +139,7 @@ using (var scope = app.Services.CreateScope())
 {
     var bus = scope.ServiceProvider.GetRequiredService<IBus>();
     await bus.Subscribe<TransactionProcessedEvent>();
+    await bus.Subscribe<TransactionSubmittedEvent>();
 }
 
 if (app.Environment.IsDevelopment())

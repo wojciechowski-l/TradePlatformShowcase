@@ -4,7 +4,10 @@ namespace TradePlatform.Core.DTOs;
 
 public record TransactionProcessedEvent(
     Guid TransactionId,
-    string AccountId,
+    string SourceAccountId,
+    string TargetAccountId,
+    decimal Amount,
+    string Currency,
     TransactionStatus Status,
     DateTime ProcessedAtUtc
 );

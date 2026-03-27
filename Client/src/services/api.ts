@@ -30,6 +30,11 @@ export enum TransactionStatus {
     Failed = 2
 }
 
+export enum AccountActivityDirection {
+    Outgoing = 0,
+    Incoming = 1
+}
+
 export interface TransactionResponse {
     id: string;
     status: TransactionStatus;
@@ -43,6 +48,19 @@ export interface AccountDto {
     id: string;
     currency: string;
     ownerId: string;
+}
+
+export interface AccountActivityDto {
+    transactionId: string;
+    accountId: string;
+    counterpartyAccountId: string;
+    direction: AccountActivityDirection;
+    amount: number;
+    currency: string;
+    status: TransactionStatus;
+    createdAtUtc: string;
+    processedAtUtc: string | null;
+    lastEventUtc: string;
 }
 
 export class ApiValidationError extends Error {
@@ -138,5 +156,19 @@ export const provisionAccount = async (token: string, signal?: AbortSignal): Pro
     });
 
     if (!response.ok) throw new Error('Failed to provision account');
+    return response.json();
+};
+
+export const getMyAccountActivity = async (
+    token: string,
+    signal?: AbortSignal
+): Promise<AccountActivityDto[]> => {
+    const response = await fetch(`${API_BASE_URL}/api/accounts/my-account/activity`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal
+    });
+
+    if (response.status === 404) return [];
+    if (!response.ok) throw new Error('Failed to fetch activity feed');
     return response.json();
 };

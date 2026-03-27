@@ -35,6 +35,6 @@ test.describe('Trade Platform E2E Flow', () => {
 
     await expect(page.getByText('Success!')).toBeVisible();
     await expect(page.getByText(/Transaction ID:/i)).toBeVisible();
-    await expect(page.getByText('Processed')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('alert').filter({ hasText: /Processed/ })).toBeVisible({ timeout: 15000 });
   });
 });
