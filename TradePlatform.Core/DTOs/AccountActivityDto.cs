@@ -14,5 +14,6 @@ namespace TradePlatform.Core.DTOs
         public DateTime CreatedAtUtc { get; set; }
         public DateTime? ProcessedAtUtc { get; set; }
         public DateTime LastEventUtc { get; set; }
+        public string? FailureReason { get; set; }
     }
 }

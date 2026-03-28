@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
 using TradePlatform.Core.ValueObjects;
@@ -80,7 +81,8 @@ namespace TradePlatform.Api.Controllers
             var newAccount = new Account
             {
                 OwnerId = userId!,
-                Currency = Currency.FromCode("USD")
+                Currency = Currency.FromCode("USD"),
+                Balance = TradeDefaults.InitialAccountBalance
             };
 
             context.Accounts.Add(newAccount);

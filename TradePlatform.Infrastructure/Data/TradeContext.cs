@@ -31,6 +31,10 @@ namespace TradePlatform.Infrastructure.Data
                 .HasPrecision(18, 2);
 
             modelBuilder.Entity<TransactionRecord>()
+                .Property(t => t.FailureReason)
+                .HasMaxLength(250);
+
+            modelBuilder.Entity<TransactionRecord>()
                 .Property(t => t.SourceAccountId)
                 .IsRequired()
                 .HasMaxLength(50);
@@ -68,6 +72,10 @@ namespace TradePlatform.Infrastructure.Data
                        .ValueGeneratedOnAdd()
                        .HasDefaultValueSql("CONCAT('ACC-', CAST(NEXT VALUE FOR AccountIdSeq AS VARCHAR(10)))");
             });
+
+            modelBuilder.Entity<Account>()
+                .Property(a => a.Balance)
+                .HasPrecision(18, 2);
 
             modelBuilder.Entity<Account>()
                 .HasOne(a => a.Owner)
@@ -111,6 +119,9 @@ namespace TradePlatform.Infrastructure.Data
 
                 builder.Property(p => p.Amount)
                     .HasPrecision(18, 2);
+
+                builder.Property(p => p.FailureReason)
+                    .HasMaxLength(250);
 
                 builder.Property(p => p.Currency)
                     .HasMaxLength(3)

@@ -138,7 +138,7 @@ if (args.Contains("--migrate-only"))
 using (var scope = app.Services.CreateScope())
 {
     var bus = scope.ServiceProvider.GetRequiredService<IBus>();
-    await bus.Subscribe<TransactionProcessedEvent>();
+    await bus.Subscribe<TransactionStatusChangedEvent>();
     await bus.Subscribe<TransactionSubmittedEvent>();
 }
 

@@ -48,14 +48,16 @@ namespace TradePlatform.Tests.Worker
             {
                 Id = srcAccId,
                 OwnerId = userId,
-                Currency = Currency.FromCode("USD")
+                Currency = Currency.FromCode("USD"),
+                Balance = 500m
             };
 
             var tgtAccount = new Account
             {
                 Id = tgtAccId,
                 OwnerId = userId,
-                Currency = Currency.FromCode("USD")
+                Currency = Currency.FromCode("USD"),
+                Balance = 10m
             };
 
             context.Users.Add(user);
@@ -95,12 +97,14 @@ namespace TradePlatform.Tests.Worker
 
             Assert.NotNull(updatedTx);
             Assert.Equal(TransactionStatus.Processed, updatedTx.Status);
+            Assert.Equal(450m, (await context.Accounts.FindAsync([srcAccId], TestContext.Current.CancellationToken))!.Balance);
+            Assert.Equal(60m, (await context.Accounts.FindAsync([tgtAccId], TestContext.Current.CancellationToken))!.Balance);
 
             mockBus.Verify(
                 m => m.Publish(
-                    It.Is<TransactionProcessedEvent>(e =>
+                    It.Is<TransactionStatusChangedEvent>(e =>
                         e.TransactionId == txId &&
-                        e.Status == TransactionStatus.Processed &&
+                        e.CurrentStatus == TransactionStatus.Processed &&
                         e.SourceAccountId == srcAccId &&
                         e.TargetAccountId == tgtAccId &&
                         e.Amount == 50 &&
@@ -109,6 +113,12 @@ namespace TradePlatform.Tests.Worker
                 ),
                 Times.Once
             );
+
+            mockBus.Verify(
+                m => m.Publish(
+                    It.IsAny<TransactionStatusChangedEvent>(),
+                    It.IsAny<IDictionary<string, string>>()),
+                Times.Exactly(3));
         }
 
         [Fact]
@@ -134,14 +144,16 @@ namespace TradePlatform.Tests.Worker
             {
                 Id = srcAccId,
                 OwnerId = userId,
-                Currency = Currency.FromCode("USD")
+                Currency = Currency.FromCode("USD"),
+                Balance = 500m
             };
 
             var tgtAccount = new Account
             {
                 Id = tgtAccId,
                 OwnerId = userId,
-                Currency = Currency.FromCode("USD")
+                Currency = Currency.FromCode("USD"),
+                Balance = 10m
             };
 
             context.Users.Add(user);
@@ -174,6 +186,80 @@ namespace TradePlatform.Tests.Worker
             await handler.Handle(evt);
 
             mockBus.Verify(m => m.Publish(It.IsAny<object>(), It.IsAny<IDictionary<string, string>>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task Handle_Should_Fail_Transaction_When_Source_Funds_Are_Insufficient()
+        {
+            using var context = _fixture.CreateContext();
+            await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+
+            var userId = Guid.NewGuid().ToString();
+            var srcAccId = $"SRC_{Guid.NewGuid()}";
+            var tgtAccId = $"TGT_{Guid.NewGuid()}";
+            var txId = Guid.NewGuid();
+
+            context.Users.Add(new ApplicationUser
+            {
+                Id = userId,
+                UserName = $"User_{Guid.NewGuid()}",
+                Email = $"test_{Guid.NewGuid()}@example.com",
+                FullName = "Test User"
+            });
+
+            context.Accounts.AddRange(
+                new Account
+                {
+                    Id = srcAccId,
+                    OwnerId = userId,
+                    Currency = Currency.FromCode("USD"),
+                    Balance = 25m
+                },
+                new Account
+                {
+                    Id = tgtAccId,
+                    OwnerId = userId,
+                    Currency = Currency.FromCode("USD"),
+                    Balance = 10m
+                });
+
+            context.Transactions.Add(new TransactionRecord
+            {
+                Id = txId,
+                SourceAccountId = srcAccId,
+                TargetAccountId = tgtAccId,
+                Amount = 50m,
+                Currency = Currency.FromCode("USD"),
+                Status = TransactionStatus.Pending
+            });
+
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+            var mockBus = new Mock<IBus>();
+            var handler = new TransactionCreatedHandler(
+                context,
+                mockBus.Object,
+                CreateMockTransactionScopeManager().Object,
+                Mock.Of<ILogger<TransactionCreatedHandler>>());
+
+            await handler.Handle(new TransactionCreatedEvent(txId, srcAccId, tgtAccId, 50m, "USD"));
+
+            context.ChangeTracker.Clear();
+
+            var updatedTx = await context.Transactions.FindAsync([txId], TestContext.Current.CancellationToken);
+
+            Assert.NotNull(updatedTx);
+            Assert.Equal(TransactionStatus.Failed, updatedTx.Status);
+            Assert.Equal("Source account has insufficient funds.", updatedTx.FailureReason);
+
+            mockBus.Verify(
+                m => m.Publish(
+                    It.Is<TransactionStatusChangedEvent>(e =>
+                        e.TransactionId == txId &&
+                        e.CurrentStatus == TransactionStatus.Failed &&
+                        e.FailureReason == "Source account has insufficient funds."),
+                    It.IsAny<IDictionary<string, string>>()),
+                Times.Once);
         }
     }
 

@@ -94,18 +94,17 @@ intervention is required.
 
 ## 5. Worker crashes during `TransactionCreatedHandler.Handle()`
 
-**Sub-case A: Crash before `SaveChangesAsync()` and `bus.Publish()` inside the scope**
+**Sub-case A: Crash before the transaction scope commits**
 
 **State produced:**
 - `ExecuteInTransactionAsync` transaction is rolled back.
 - `TransactionRecord.Status` remains `Pending`.
-- No `TransactionProcessedEvent` is published.
+- No `TransactionStatusChangedEvent` is published.
 - RabbitMQ has not yet acknowledged the message (Rebus uses client acknowledgement).
 
 **Recovery:** Rebus re-delivers `TransactionCreatedEvent` (up to 3 attempts via
-`SimpleRetryStrategy`). The handler's idempotency guard
-(`if (transaction.Status == Processed) return`) prevents double-processing if a prior
-partial attempt had already committed.
+`SimpleRetryStrategy`). The handler's terminal-state idempotency guard prevents
+double-processing if a prior partial attempt had already committed.
 
 ---
 
@@ -113,13 +112,13 @@ partial attempt had already committed.
 
 **State produced:**
 - `TransactionRecord.Status = Processed` is committed.
-- `TransactionProcessedEvent` outbox entry is committed.
+- `TransactionStatusChangedEvent` outbox entries are committed.
 - Rebus has not yet acknowledged the original `TransactionCreatedEvent` to RabbitMQ.
 
 **Recovery:** RabbitMQ re-delivers `TransactionCreatedEvent`. The handler's idempotency
-guard (`Status == Processed`) short-circuits the handler body, preventing a second status
-update. The previously committed `TransactionProcessedEvent` outbox entry will be
-forwarded on the next Worker startup and the client will receive its SignalR update.
+guard (terminal status check) short-circuits the handler body, preventing a second status
+update. The previously committed lifecycle events will be forwarded on the next Worker
+startup and the client will receive its SignalR or polling-based update.
 
 ---
 
@@ -131,14 +130,14 @@ forwarded on the next Worker startup and the client will receive its SignalR upd
 **State produced:**
 - `TransactionCreatedEvent` is moved to the Rebus dead-letter queue.
 - `TransactionRecord.Status` remains `Pending` indefinitely.
-- No `TransactionProcessedEvent` is published.
+- No terminal `TransactionStatusChangedEvent` is published.
 - No SignalR update is sent to the client.
 
 **System state:** The transaction is orphaned in `Pending`. The client has no way to
 know the transaction will not complete.
 
-**Known gap:** `TransactionStatus.Failed` exists in the domain enum but is not wired
-to dead-letter handling. No dead-letter consumer exists. See `Decisions.md` ADR-010.
+**Known gap:** business-level `Failed` is implemented, but dead-letter handling is still
+separate. No dead-letter consumer exists. See `Decisions.md` ADR-010.
 
 **Recovery:** Manual inspection of the dead-letter queue is required. An operator must
 determine the root cause and either re-queue the message or manually update the record.
@@ -160,8 +159,9 @@ while Redis is unavailable.
 
 **Recovery:** The client will not receive a real-time update. Since `TransactionRecord`
 in the database reflects the correct final state, a page refresh or explicit status poll
-would surface the correct status. There is no client-side polling fallback in the current
-implementation.
+would surface the correct status. The dashboard now polls the activity projection until a
+terminal status is observed, so the user can still converge on the right state without
+the real-time push.
 
 ---
 
@@ -185,8 +185,8 @@ implementation.
 **Code path:** Rebus re-delivers a message the Worker already processed (e.g., after
 crash sub-case B above, or a network partition causing broker re-delivery).
 
-**State produced without guard:** Double-processing — status updated twice, two
-`TransactionProcessedEvent` published, two SignalR pushes sent.
+**State produced without guard:** Double-processing — status updated twice, duplicate
+lifecycle events published, duplicate SignalR pushes sent.
 
 **State produced with guard:**
 

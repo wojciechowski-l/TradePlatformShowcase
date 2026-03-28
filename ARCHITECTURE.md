@@ -62,7 +62,7 @@ Browser
                                                 │ bus.Publish() via Outbox
                                                 ▼
                                      RabbitMQ (topic exchange)
-                                                │ bus.Subscribe<TransactionProcessedEvent>()
+                                                │ bus.Subscribe<TransactionStatusChangedEvent>()
                                                 ▼
                                      TradePlatform.Api (NotificationHandler)
                                                 │
@@ -132,13 +132,14 @@ post-commit — a rolled-back transaction leaves no outbox entry.
 **5. Worker — `TransactionCreatedHandler`**
 Receives `TransactionCreatedEvent` from `trade-orders`. Inside its own
 `RebusSqlTransactionScopeManager` scope:
-- Idempotency guard: skips if `TransactionRecord.Status == Processed` already.
-- Updates `TransactionRecord.Status = Processed`.
-- Calls `bus.Publish(new TransactionProcessedEvent(...))` — staged in the same outbox
-  transaction, forwarded to the RabbitMQ topic exchange post-commit.
+- Idempotency guard: skips if the transaction is already terminal (`Processed` or `Failed`).
+- Validates the accounts and funds, then drives the lifecycle through `Validated` and `Processing`.
+- Applies the balance transfer and ends in `Processed` or `Failed`.
+- Calls `bus.Publish(new TransactionStatusChangedEvent(...))` for each lifecycle transition —
+  staged in the same outbox transaction, forwarded to the RabbitMQ topic exchange post-commit.
 
 **6. API — `NotificationHandler`**
-At startup, the API calls `bus.Subscribe<TransactionProcessedEvent>()`, binding its
+At startup, the API calls `bus.Subscribe<TransactionStatusChangedEvent>()`, binding its
 `notifications` queue to the RabbitMQ topic exchange for this event type.
 `NotificationHandler` receives the event and calls:
 
@@ -151,7 +152,9 @@ The Redis backplane (channel prefix `TradePlatform`) ensures the group message r
 the correct API replica regardless of which replica holds the client's WebSocket.
 
 **7. Client**
-Receives `ReceiveStatusUpdate` on the SignalR connection and updates the UI.
+Receives `ReceiveStatusUpdate` on the SignalR connection and updates the UI. The dashboard
+also polls the account-activity projection until a terminal status is observed, so a
+missed real-time push does not leave the user stuck on an intermediate state.
 
 ---
 
@@ -188,11 +191,11 @@ The two checks are independently enforced. A bypass of one does not bypass the o
 | Producer              | Mechanism    | Message type               | Routing               | Consumer              |
 |-----------------------|--------------|----------------------------|-----------------------|-----------------------|
 | TradePlatform.Api     | `bus.Send()` | `TransactionCreatedEvent`  | TypeBased → `trade-orders` | TradePlatform.Worker |
-| TradePlatform.Worker  | `bus.Publish()` | `TransactionProcessedEvent` | Topic exchange (pub/sub) | TradePlatform.Api  |
+| TradePlatform.Worker  | `bus.Publish()` | `TransactionStatusChangedEvent` | Topic exchange (pub/sub) | TradePlatform.Api  |
 
 - `TransactionCreatedEvent` uses point-to-point Send with explicit TypeBased routing.
-- `TransactionProcessedEvent` uses pub/sub Publish. The API subscribes at startup via
-  `bus.Subscribe<TransactionProcessedEvent>()`.
+- `TransactionStatusChangedEvent` uses pub/sub Publish. The API subscribes at startup via
+  `bus.Subscribe<TransactionStatusChangedEvent>()`.
 - Both queues are durable. `SimpleRetryStrategy(maxDeliveryAttempts: 3)` is configured
   on both services. After 3 failed deliveries, messages are dead-lettered.
 
@@ -203,13 +206,14 @@ The two checks are independently enforced. A bypass of one does not bypass the o
 transitions asynchronously via SignalR after the Worker commits.
 
 ```
-Pending  →  Processed   (happy path — SignalR ReceiveStatusUpdate)
-Pending  →  Pending     (dead-lettered — no terminal state; see ADR-010)
+Pending  →  Validated  →  Processing  →  Processed
+Pending  ────────────────────────────►  Failed
+Pending  →  Pending                   (dead-lettered infrastructure failure; see ADR-010)
 ```
 
-**Known gap:** `TransactionStatus.Failed` is defined in the domain enum but is not wired
-to any state transition. A dead-lettered message leaves `TransactionRecord` in `Pending`
-indefinitely. See `Decisions.md` ADR-010.
+Business failures now produce a definitive terminal state. Dead-lettered infrastructure
+failures remain a separate concern and can still leave a transaction pre-terminal. See
+`Decisions.md` ADR-010.
 
 ---
 

@@ -11,7 +11,7 @@ public partial class AccountActivityProjectionHandler(
     TradeContext context,
     ILogger<AccountActivityProjectionHandler> logger)
     : IHandleMessages<TransactionSubmittedEvent>,
-      IHandleMessages<TransactionProcessedEvent>
+      IHandleMessages<TransactionStatusChangedEvent>
 {
     public async Task Handle(TransactionSubmittedEvent message)
     {
@@ -25,7 +25,9 @@ public partial class AccountActivityProjectionHandler(
             TransactionStatus.Pending,
             message.SubmittedAtUtc,
             null,
-            message.SubmittedAtUtc);
+            message.SubmittedAtUtc,
+            null,
+            allowStatusRegression: false);
 
         await UpsertProjectionAsync(
             message.TransactionId,
@@ -37,13 +39,15 @@ public partial class AccountActivityProjectionHandler(
             TransactionStatus.Pending,
             message.SubmittedAtUtc,
             null,
-            message.SubmittedAtUtc);
+            message.SubmittedAtUtc,
+            null,
+            allowStatusRegression: false);
 
         await context.SaveChangesAsync();
         LogProjectionCreated(logger, message.TransactionId);
     }
 
-    public async Task Handle(TransactionProcessedEvent message)
+    public async Task Handle(TransactionStatusChangedEvent message)
     {
         var projections = await context.AccountActivityProjections
             .Where(p => p.TransactionId == message.TransactionId)
@@ -58,10 +62,12 @@ public partial class AccountActivityProjectionHandler(
                 AccountActivityDirection.Outgoing,
                 message.Amount,
                 message.Currency,
-                message.Status,
-                message.ProcessedAtUtc,
-                message.ProcessedAtUtc,
-                message.ProcessedAtUtc);
+                message.CurrentStatus,
+                message.ChangedAtUtc,
+                GetCompletedAtUtc(message.CurrentStatus, message.ChangedAtUtc),
+                message.ChangedAtUtc,
+                message.FailureReason,
+                allowStatusRegression: true);
 
             await UpsertProjectionAsync(
                 message.TransactionId,
@@ -70,31 +76,56 @@ public partial class AccountActivityProjectionHandler(
                 AccountActivityDirection.Incoming,
                 message.Amount,
                 message.Currency,
-                message.Status,
-                message.ProcessedAtUtc,
-                message.ProcessedAtUtc,
-                message.ProcessedAtUtc);
+                message.CurrentStatus,
+                message.ChangedAtUtc,
+                GetCompletedAtUtc(message.CurrentStatus, message.ChangedAtUtc),
+                message.ChangedAtUtc,
+                message.FailureReason,
+                allowStatusRegression: true);
 
             await context.SaveChangesAsync();
-            LogProjectionRecovered(logger, message.TransactionId, message.Status);
+            LogProjectionRecovered(logger, message.TransactionId, message.CurrentStatus);
             return;
         }
 
-        if (projections.All(p => p.Status == message.Status && p.ProcessedAtUtc.HasValue))
+        if (projections.All(p =>
+            p.Status == message.CurrentStatus &&
+            (p.Status is TransactionStatus.Processed or TransactionStatus.Failed
+                ? p.ProcessedAtUtc.HasValue
+                : p.LastEventUtc >= message.ChangedAtUtc)))
         {
-            LogDuplicateStatusUpdate(logger, message.TransactionId, message.Status);
+            LogDuplicateStatusUpdate(logger, message.TransactionId, message.CurrentStatus);
             return;
         }
 
         foreach (var projection in projections)
         {
-            projection.Status = message.Status;
-            projection.ProcessedAtUtc = message.ProcessedAtUtc;
-            projection.LastEventUtc = message.ProcessedAtUtc;
+            if (GetStatusOrder(message.CurrentStatus) < GetStatusOrder(projection.Status))
+            {
+                continue;
+            }
+
+            if (projection.Status == message.CurrentStatus &&
+                projection.Status is TransactionStatus.Processed or TransactionStatus.Failed &&
+                projection.ProcessedAtUtc.HasValue)
+            {
+                continue;
+            }
+
+            if (projection.LastEventUtc > message.ChangedAtUtc &&
+                GetStatusOrder(message.CurrentStatus) == GetStatusOrder(projection.Status))
+            {
+                continue;
+            }
+
+            projection.Status = message.CurrentStatus;
+            projection.ProcessedAtUtc = GetCompletedAtUtc(message.CurrentStatus, message.ChangedAtUtc);
+            projection.LastEventUtc = message.ChangedAtUtc;
+            projection.FailureReason = message.FailureReason;
         }
 
         await context.SaveChangesAsync();
-        LogProjectionUpdated(logger, message.TransactionId, message.Status);
+        LogProjectionUpdated(logger, message.TransactionId, message.CurrentStatus);
     }
 
     private async Task UpsertProjectionAsync(
@@ -107,7 +138,9 @@ public partial class AccountActivityProjectionHandler(
         TransactionStatus status,
         DateTime createdAtUtc,
         DateTime? processedAtUtc,
-        DateTime lastEventUtc)
+        DateTime lastEventUtc,
+        string? failureReason,
+        bool allowStatusRegression)
     {
         var projection = await context.AccountActivityProjections
             .FirstOrDefaultAsync(p =>
@@ -128,7 +161,8 @@ public partial class AccountActivityProjectionHandler(
                 Status = status,
                 CreatedAtUtc = createdAtUtc,
                 ProcessedAtUtc = processedAtUtc,
-                LastEventUtc = lastEventUtc
+                LastEventUtc = lastEventUtc,
+                FailureReason = failureReason
             });
 
             return;
@@ -137,10 +171,37 @@ public partial class AccountActivityProjectionHandler(
         projection.CounterpartyAccountId = counterpartyAccountId;
         projection.Amount = amount;
         projection.Currency = currency;
-        projection.Status = status;
-        projection.CreatedAtUtc = createdAtUtc;
-        projection.ProcessedAtUtc = processedAtUtc;
-        projection.LastEventUtc = lastEventUtc;
+        projection.CreatedAtUtc = createdAtUtc < projection.CreatedAtUtc ? createdAtUtc : projection.CreatedAtUtc;
+
+        if (allowStatusRegression ||
+            GetStatusOrder(status) > GetStatusOrder(projection.Status) ||
+            (GetStatusOrder(status) == GetStatusOrder(projection.Status) && lastEventUtc >= projection.LastEventUtc))
+        {
+            projection.Status = status;
+            projection.ProcessedAtUtc = processedAtUtc;
+            projection.LastEventUtc = lastEventUtc;
+            projection.FailureReason = failureReason;
+        }
+    }
+
+    private static int GetStatusOrder(TransactionStatus status)
+    {
+        return status switch
+        {
+            TransactionStatus.Pending => 0,
+            TransactionStatus.Validated => 1,
+            TransactionStatus.Processing => 2,
+            TransactionStatus.Processed => 3,
+            TransactionStatus.Failed => 3,
+            _ => 0
+        };
+    }
+
+    private static DateTime? GetCompletedAtUtc(TransactionStatus status, DateTime changedAtUtc)
+    {
+        return status is TransactionStatus.Processed or TransactionStatus.Failed
+            ? changedAtUtc
+            : null;
     }
 
     [LoggerMessage(LogLevel.Information, "Created activity projection entries for Tx {TransactionId}")]

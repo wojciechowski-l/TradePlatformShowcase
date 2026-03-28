@@ -26,8 +26,10 @@ export interface TransactionRequest {
 
 export enum TransactionStatus {
     Pending = 0,
-    Processed = 1,
-    Failed = 2
+    Validated = 1,
+    Processing = 2,
+    Processed = 3,
+    Failed = 4
 }
 
 export enum AccountActivityDirection {
@@ -48,6 +50,7 @@ export interface AccountDto {
     id: string;
     currency: string;
     ownerId: string;
+    balance?: number;
 }
 
 export interface AccountActivityDto {
@@ -61,6 +64,7 @@ export interface AccountActivityDto {
     createdAtUtc: string;
     processedAtUtc: string | null;
     lastEventUtc: string;
+    failureReason?: string | null;
 }
 
 export class ApiValidationError extends Error {

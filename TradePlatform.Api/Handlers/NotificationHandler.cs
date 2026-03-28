@@ -6,9 +6,9 @@ using TradePlatform.Core.DTOs;
 namespace TradePlatform.Api.Handlers;
 
 public partial class NotificationHandler(IHubContext<TradeHub> hubContext, ILogger<NotificationHandler> logger)
-    : IHandleMessages<TransactionProcessedEvent>
+    : IHandleMessages<TransactionStatusChangedEvent>
 {
-    public async Task Handle(TransactionProcessedEvent message)
+    public async Task Handle(TransactionStatusChangedEvent message)
     {
         var accountIds = new[] { message.SourceAccountId, message.TargetAccountId }
             .Where(accountId => !string.IsNullOrWhiteSpace(accountId))
@@ -20,9 +20,10 @@ public partial class NotificationHandler(IHubContext<TradeHub> hubContext, ILogg
             var dto = new TransactionUpdateDto
             {
                 TransactionId = message.TransactionId,
-                Status = message.Status,
+                Status = message.CurrentStatus,
                 AccountId = accountId,
-                UpdatedAtUtc = message.ProcessedAtUtc
+                UpdatedAtUtc = message.ChangedAtUtc,
+                FailureReason = message.FailureReason
             };
 
             await hubContext.Clients.Group(accountId)

@@ -15,8 +15,6 @@ namespace TradePlatform.Core.Entities
         public ApplicationUser? Owner { get; set; }
 
         public required Currency Currency { get; set; }
-
-        // Optional: Track balance if needed later
-        // public decimal Balance { get; set; }
+        public decimal Balance { get; set; }
     }
 }

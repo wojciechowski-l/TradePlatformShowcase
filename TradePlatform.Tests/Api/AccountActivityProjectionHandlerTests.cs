@@ -40,7 +40,7 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
     }
 
     [Fact]
-    public async Task Handle_ProcessedEvent_Should_Update_Existing_ProjectionRows()
+    public async Task Handle_StatusChangedEvent_Should_Update_Existing_ProjectionRows()
     {
         await using var context = await _fixture.CreateContextAsync(TestContext.Current.CancellationToken);
         var handler = CreateHandler(context);
@@ -56,12 +56,13 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
             "USD",
             submittedAt));
 
-        await handler.Handle(new TransactionProcessedEvent(
+        await handler.Handle(new TransactionStatusChangedEvent(
             transactionId,
             "ACC-100",
             "ACC-200",
             150m,
             "USD",
+            TransactionStatus.Processing,
             TransactionStatus.Processed,
             processedAt));
 
@@ -79,19 +80,20 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
     }
 
     [Fact]
-    public async Task Handle_ProcessedEvent_Should_Create_ProjectionRows_When_SubmittedEvent_Has_Not_Arrived_Yet()
+    public async Task Handle_StatusChangedEvent_Should_Create_ProjectionRows_When_SubmittedEvent_Has_Not_Arrived_Yet()
     {
         await using var context = await _fixture.CreateContextAsync(TestContext.Current.CancellationToken);
         var handler = CreateHandler(context);
         var transactionId = Guid.NewGuid();
         var processedAt = DateTime.UtcNow;
 
-        await handler.Handle(new TransactionProcessedEvent(
+        await handler.Handle(new TransactionStatusChangedEvent(
             transactionId,
             "ACC-100",
             "ACC-200",
             150m,
             "USD",
+            TransactionStatus.Processing,
             TransactionStatus.Processed,
             processedAt));
 
@@ -110,7 +112,7 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
     }
 
     [Fact]
-    public async Task Handle_ProcessedEvent_Should_Be_Idempotent_When_Status_Is_Already_Terminal()
+    public async Task Handle_StatusChangedEvent_Should_Be_Idempotent_When_Status_Is_Already_Terminal()
     {
         await using var context = await _fixture.CreateContextAsync(TestContext.Current.CancellationToken);
         var handler = CreateHandler(context);
@@ -127,21 +129,23 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
             "USD",
             submittedAt));
 
-        await handler.Handle(new TransactionProcessedEvent(
+        await handler.Handle(new TransactionStatusChangedEvent(
             transactionId,
             "ACC-100",
             "ACC-200",
             150m,
             "USD",
+            TransactionStatus.Processing,
             TransactionStatus.Processed,
             firstProcessedAt));
 
-        await handler.Handle(new TransactionProcessedEvent(
+        await handler.Handle(new TransactionStatusChangedEvent(
             transactionId,
             "ACC-100",
             "ACC-200",
             150m,
             "USD",
+            TransactionStatus.Processing,
             TransactionStatus.Processed,
             duplicateProcessedAt));
 
@@ -154,6 +158,97 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
             Assert.Equal(TransactionStatus.Processed, row.Status);
             Assert.Equal(firstProcessedAt, row.ProcessedAtUtc);
             Assert.Equal(firstProcessedAt, row.LastEventUtc);
+        });
+    }
+
+    [Fact]
+    public async Task Handle_SubmittedEvent_Should_Not_Regress_Projection_When_Later_Status_Already_Arrived()
+    {
+        await using var context = await _fixture.CreateContextAsync(TestContext.Current.CancellationToken);
+        var handler = CreateHandler(context);
+        var transactionId = Guid.NewGuid();
+        var validatedAt = DateTime.UtcNow;
+        var submittedAt = validatedAt.AddSeconds(-5);
+
+        await handler.Handle(new TransactionStatusChangedEvent(
+            transactionId,
+            "ACC-100",
+            "ACC-200",
+            150m,
+            "USD",
+            TransactionStatus.Pending,
+            TransactionStatus.Validated,
+            validatedAt));
+
+        await handler.Handle(new TransactionSubmittedEvent(
+            transactionId,
+            "ACC-100",
+            "ACC-200",
+            150m,
+            "USD",
+            submittedAt));
+
+        var rows = await context.AccountActivityProjections
+            .Where(p => p.TransactionId == transactionId)
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, row =>
+        {
+            Assert.Equal(TransactionStatus.Validated, row.Status);
+            Assert.Equal(validatedAt, row.LastEventUtc);
+            Assert.Equal(submittedAt, row.CreatedAtUtc);
+        });
+    }
+
+    [Fact]
+    public async Task Handle_StatusChangedEvent_Should_Not_Regress_When_Lower_Status_Arrives_After_Processed()
+    {
+        await using var context = await _fixture.CreateContextAsync(TestContext.Current.CancellationToken);
+        var handler = CreateHandler(context);
+        var transactionId = Guid.NewGuid();
+        var submittedAt = DateTime.UtcNow.AddSeconds(-5);
+        var processedAt = DateTime.UtcNow;
+        var staleProcessingAt = processedAt.AddSeconds(1);
+
+        await handler.Handle(new TransactionSubmittedEvent(
+            transactionId,
+            "ACC-100",
+            "ACC-200",
+            150m,
+            "USD",
+            submittedAt));
+
+        await handler.Handle(new TransactionStatusChangedEvent(
+            transactionId,
+            "ACC-100",
+            "ACC-200",
+            150m,
+            "USD",
+            TransactionStatus.Processing,
+            TransactionStatus.Processed,
+            processedAt));
+
+        await handler.Handle(new TransactionStatusChangedEvent(
+            transactionId,
+            "ACC-100",
+            "ACC-200",
+            150m,
+            "USD",
+            TransactionStatus.Validated,
+            TransactionStatus.Processing,
+            staleProcessingAt));
+
+        var rows = await context.AccountActivityProjections
+            .Where(p => p.TransactionId == transactionId)
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, row =>
+        {
+            Assert.Equal(TransactionStatus.Processed, row.Status);
+            Assert.Equal(processedAt, row.ProcessedAtUtc);
+            Assert.Equal(processedAt, row.LastEventUtc);
         });
     }
 

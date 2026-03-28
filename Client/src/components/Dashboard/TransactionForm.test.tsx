@@ -57,4 +57,24 @@ describe('TransactionForm', () => {
 
         expect(await screen.findByText('Insufficient funds')).toBeInTheDocument();
     });
+
+    it('preserves entered values after submit', async () => {
+        const user = userEvent.setup();
+        render(<TransactionForm initialSourceId={initialSourceId} onSubmit={mockSubmit} />);
+
+        const targetInput = screen.getByLabelText(/target account/i);
+        await user.clear(targetInput);
+        await user.type(targetInput, 'ACC-10001');
+
+        const amountInput = screen.getByLabelText(/amount/i);
+        await user.clear(amountInput);
+        await user.type(amountInput, '250');
+
+        await user.click(screen.getByRole('button', { name: /submit transaction/i }));
+
+        await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+
+        expect(screen.getByLabelText(/target account/i)).toHaveValue('ACC-10001');
+        expect(screen.getByLabelText(/amount/i)).toHaveValue(250);
+    });
 });

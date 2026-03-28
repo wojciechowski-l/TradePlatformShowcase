@@ -32,6 +32,23 @@ export const Dashboard: React.FC = () => {
 
     const idempotencyKeyRef = useRef(crypto.randomUUID());
 
+    const isTerminalStatus = (status: TransactionStatus) =>
+        status === TransactionStatus.Processed || status === TransactionStatus.Failed;
+
+    const getStatusChipColor = (status: TransactionStatus): 'default' | 'success' | 'warning' | 'error' => {
+        switch (status) {
+            case TransactionStatus.Processed:
+                return 'success';
+            case TransactionStatus.Failed:
+                return 'error';
+            case TransactionStatus.Validated:
+            case TransactionStatus.Processing:
+                return 'warning';
+            default:
+                return 'default';
+        }
+    };
+
     if (!token) return null;
 
     const refreshActivityFeed = async (signal?: AbortSignal) => {
@@ -42,7 +59,8 @@ export const Dashboard: React.FC = () => {
             const items = await getMyAccountActivity(token, signal);
             setActivityFeed(items);
 
-            if (pendingProjectionId && items.some(item => item.transactionId === pendingProjectionId)) {
+            if (pendingProjectionId && items.some(item =>
+                item.transactionId === pendingProjectionId && isTerminalStatus(item.status))) {
                 setPendingProjectionId(null);
             }
         } catch (err: unknown) {
@@ -128,7 +146,8 @@ export const Dashboard: React.FC = () => {
         if (connection) {
             connection.on("ReceiveStatusUpdate", (update: any) => {
                 const statusLabel = TransactionStatus[update.status] || update.status;
-                setNotification(`Transaction ${update.transactionId} is now ${statusLabel}!`);
+                const failureSuffix = update.failureReason ? ` Reason: ${update.failureReason}` : '';
+                setNotification(`Transaction ${update.transactionId} is now ${statusLabel}!${failureSuffix}`);
                 void refreshActivityFeed();
             });
         }
@@ -229,7 +248,7 @@ export const Dashboard: React.FC = () => {
                                                 <Chip
                                                     size="small"
                                                     label={TransactionStatus[item.status]}
-                                                    color={item.status === TransactionStatus.Processed ? 'success' : 'warning'}
+                                                    color={getStatusChipColor(item.status)}
                                                     variant="outlined"
                                                 />
                                             </Stack>
@@ -247,6 +266,14 @@ export const Dashboard: React.FC = () => {
                                                 <Typography component="span" variant="caption" color="text.secondary">
                                                     Last projection event {new Date(item.lastEventUtc).toLocaleString()}
                                                 </Typography>
+                                                {item.failureReason && (
+                                                    <>
+                                                        <br />
+                                                        <Typography component="span" variant="caption" color="error.main">
+                                                            Failure reason: {item.failureReason}
+                                                        </Typography>
+                                                    </>
+                                                )}
                                             </>
                                         }
                                     />

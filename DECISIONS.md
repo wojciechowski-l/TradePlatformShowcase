@@ -47,7 +47,7 @@ Both are provided by `Rebus.SqlServer` with no custom maintenance cost.
 
 ---
 
-## ADR-003 — Explicit TypeBased routing; pub/sub Publish for worker events
+## ADR-003 — Explicit TypeBased routing; pub/sub Publish for worker lifecycle events
 
 **Status:** Implemented
 **Files:** `TradePlatform.Api/Program.cs`, `TradePlatform.Worker/Program.cs`,
@@ -55,9 +55,9 @@ Both are provided by `Rebus.SqlServer` with no custom maintenance cost.
 
 **Decision:** Point-to-point commands (`TransactionCreatedEvent`) use TypeBased routing
 with explicit queue mapping declared in `Program.cs`. Worker-originated events
-(`TransactionProcessedEvent`) use `bus.Publish()` with the API subscribing via
-`bus.Subscribe<TransactionProcessedEvent>()` at startup. The Worker's routing table
-contains no entry for `TransactionProcessedEvent` because `Publish` uses the RabbitMQ
+(`TransactionStatusChangedEvent`) use `bus.Publish()` with the API subscribing via
+`bus.Subscribe<TransactionStatusChangedEvent>()` at startup. The Worker's routing table
+contains no entry for `TransactionStatusChangedEvent` because `Publish` uses the RabbitMQ
 topic exchange, not the TypeBased send table.
 
 This separation means:
@@ -65,7 +65,7 @@ This separation means:
 - Worker → API: pub/sub Publish, exchange-based, subscriber-driven.
 
 **Reasoning:** `TransactionCreatedEvent` is a command with a single known consumer —
-point-to-point Send is the correct Rebus primitive. `TransactionProcessedEvent` is a
+point-to-point Send is the correct Rebus primitive. `TransactionStatusChangedEvent` is a
 domain event that any number of consumers could subscribe to — pub/sub Publish is the
 correct primitive and allows future consumers to be added without modifying the Worker.
 
@@ -88,7 +88,7 @@ API startup.
 `TradePlatform` (via `RedisChannel.Literal`).
 
 **Reasoning:** Without a backplane, `IHubContext.Clients.Group(accountId).SendAsync(...)`
-only reaches clients connected to the same API process. `TransactionProcessedEvent`
+only reaches clients connected to the same API process. `TransactionStatusChangedEvent`
 arrives at an arbitrary API replica via RabbitMQ. That replica must be able to forward the
 SignalR push to whichever replica holds the WebSocket. Redis pub/sub provides this
 cross-replica fan-out.
@@ -208,32 +208,33 @@ are registered there.
 
 ---
 
-## ADR-010 — TransactionStatus.Failed deliberately not activated
+## ADR-010 — Explicit transaction lifecycle with business-level failure states
 
-**Status:** Known gap — open design question
+**Status:** Implemented, with an infrastructure gap remaining
 **Files:** `TradePlatform.Core/Entities/TransactionRecord.cs` (enum definition),
 `TradePlatform.Worker/Handlers/TransactionCreatedHandler.cs`
 
-**Decision:** The `Failed` status value exists in the domain enum but is not wired to
-any state transition. Dead-lettered messages leave `TransactionRecord` in `Pending`
-indefinitely.
+**Decision:** Transactions use an explicit lifecycle:
 
-**Reasoning:** Two distinct failure modes have not been distinguished:
+`Pending -> Validated -> Processing -> Processed/Failed`
+
+`Failed` is now a real business outcome for deterministic application-level rejections.
+Dead-lettered infrastructure failures remain separate and can still leave a transaction
+pre-terminal.
+
+**Reasoning:** Two distinct failure classes are treated differently:
 
 1. **Infrastructure failure** — Rebus exhausts 3 delivery attempts and dead-letters the
-   message. The transaction record never transitions out of `Pending`.
+   message. The transaction record does not receive a business terminal state.
 2. **Application failure** — The transaction is structurally valid but cannot be processed
-   (e.g., insufficient funds). This requires a defined business rule before a `Failed`
-   transition is meaningful.
+   (e.g., insufficient funds). This now transitions the record to `Failed` and emits a
+   lifecycle event with a reason.
 
-Activating `Failed` without distinguishing these two modes would conflate infrastructure
-faults with application-level rejections. The decision to leave it unactivated is
-deliberate and recorded here to prevent it from being treated as an oversight.
+This makes business rejections visible to users without conflating them with transport
+faults.
 
-**Resolution path:** Define the business semantics of `Failed`. Add a dead-letter consumer
-or application-level exception handler in the Worker. Wire the status transition and emit
-a `TransactionProcessedEvent` with `Status = Failed` so the client receives a definitive
-terminal state.
+**Remaining gap:** dead-lettered infrastructure failures still have no dedicated terminal
+mapping or remediation consumer.
 
 ---
 

@@ -1,5 +1,10 @@
-﻿namespace TradePlatform.Core.Constants
+namespace TradePlatform.Core.Constants
 {
+    public static class TradeDefaults
+    {
+        public const decimal InitialAccountBalance = 1000m;
+    }
+
     public static class MessagingConstants
     {
         public const string OrdersQueue = "trade-orders";
@@ -16,6 +21,8 @@
     public enum TransactionStatus
     {
         Pending,
+        Validated,
+        Processing,
         Processed,
         Failed
     }

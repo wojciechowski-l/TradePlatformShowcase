@@ -36,5 +36,8 @@ namespace TradePlatform.Core.Entities
         public DateTime? ProcessedAtUtc { get; set; }
 
         public DateTime LastEventUtc { get; set; }
+
+        [MaxLength(250)]
+        public string? FailureReason { get; set; }
     }
 }

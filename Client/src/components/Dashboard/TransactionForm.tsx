@@ -1,4 +1,4 @@
-import React, { useActionState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Grid,
   TextField, 
@@ -24,14 +24,35 @@ interface FormState {
 }
 
 export const TransactionForm: React.FC<TransactionFormProps> = ({ initialSourceId, onSubmit }) => {
-  
-  const submitAction = async (_prevState: FormState, formData: FormData): Promise<FormState> => {
-    const data: TransactionFormData = {
-      sourceAccountId: formData.get('sourceAccountId') as string,
-      targetAccountId: formData.get('targetAccountId') as string,
-      amount: Number(formData.get('amount')),
-      currency: formData.get('currency') as string,
+  const [state, setState] = useState<FormState>({ errors: {} });
+  const [isPending, setIsPending] = useState(false);
+  const [formData, setFormData] = useState<TransactionFormData>({
+    sourceAccountId: initialSourceId,
+    targetAccountId: 'ACC-999',
+    amount: 100,
+    currency: 'USD',
+  });
+
+  useEffect(() => {
+    setFormData(current => ({ ...current, sourceAccountId: initialSourceId }));
+  }, [initialSourceId]);
+
+  const handleChange = (field: keyof TransactionFormData) =>
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const value = field === 'amount'
+        ? Number(event.target.value)
+        : event.target.value;
+
+      setFormData(current => ({
+        ...current,
+        [field]: value,
+      }));
     };
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsPending(true);
+    setState({ errors: {} });
 
     let validationErrors: Record<string, string[]> = {};
 
@@ -40,15 +61,14 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ initialSourceI
     };
 
     try {
-      await onSubmit(data, setErrorsAdapter);
+      await onSubmit(formData, setErrorsAdapter);
     } catch (error: unknown) {
       console.error("Form submission error", error);
+    } finally {
+      setState({ errors: validationErrors });
+      setIsPending(false);
     }
-
-    return { errors: validationErrors };
   };
-
-  const [state, formAction, isPending] = useActionState(submitAction, { errors: {} });
 
   const getFieldError = (field: string) => {
     const errorList = state.errors[field] || state.errors[field.charAt(0).toUpperCase() + field.slice(1)];
@@ -56,15 +76,15 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ initialSourceI
   };
 
   return (
-    <form action={formAction}>
+    <form onSubmit={handleSubmit}>
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 6 }}>
           <TextField
             fullWidth
             name="sourceAccountId"
             label="Source Account"
-            defaultValue={initialSourceId}
-            key={initialSourceId} 
+            value={formData.sourceAccountId}
+            onChange={handleChange('sourceAccountId')}
             error={!!getFieldError('sourceAccountId')}
             helperText={getFieldError('sourceAccountId')}
             disabled={isPending}
@@ -75,7 +95,8 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ initialSourceI
             fullWidth
             name="targetAccountId"
             label="Target Account"
-            defaultValue="ACC-999"
+            value={formData.targetAccountId}
+            onChange={handleChange('targetAccountId')}
             error={!!getFieldError('targetAccountId')}
             helperText={getFieldError('targetAccountId')}
             disabled={isPending}
@@ -87,7 +108,8 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ initialSourceI
             name="amount"
             type="number"
             label="Amount"
-            defaultValue={100}
+            value={formData.amount}
+            onChange={handleChange('amount')}
             error={!!getFieldError('amount')}
             helperText={getFieldError('amount')}
             disabled={isPending}
@@ -98,7 +120,8 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ initialSourceI
             fullWidth
             name="currency"
             label="Currency"
-            defaultValue="USD"
+            value={formData.currency}
+            onChange={handleChange('currency')}
             error={!!getFieldError('currency')}
             helperText={getFieldError('currency')}
             disabled={isPending}

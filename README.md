@@ -79,7 +79,7 @@ The `RebusTransactionScope` writes outbound messages to the `RebusOutbox` table 
 
 - **Fault Tolerance**: Configured with a `SimpleRetryStrategy` (3 attempts) before dead-lettering. Queues are durable to survive broker restarts.
 
-- **Known gap**: `TransactionStatus.Failed` is defined in the domain enum but is not yet activated. After 3 failed delivery attempts, Rebus dead-letters the message and the transaction record remains `Pending`. The distinction between a dead-lettered message (infrastructure failure) and an application-level failure (e.g. insufficient funds) is a deliberate open design question — resolving it requires defining what `Failed` means in business terms before wiring up the status transition.
+- **Business lifecycle**: The Worker now drives `Pending -> Validated -> Processing -> Processed/Failed`. Missing target accounts, currency mismatches, and insufficient funds end in `Failed` with a reason. Dead-lettered infrastructure failures are still a separate concern and can leave a transaction pre-terminal for manual recovery.
 
 ### 3. Ownership-Enforced Boundaries
 
@@ -94,7 +94,7 @@ The system prevents any authenticated user from acting on accounts they do not o
 
 ### 4. Scalable Real-Time Notifications (SignalR + Redis)
 
-The Worker publishes a `TransactionProcessedEvent` after processing. The API subscribes to this event and pushes a `ReceiveStatusUpdate` message to the relevant SignalR group.
+The Worker publishes `TransactionStatusChangedEvent` messages for each lifecycle transition. The API subscribes to these events and pushes a `ReceiveStatusUpdate` message to the relevant SignalR group.
 
 - **Redis Backplane**: Ensures SignalR messages reach the correct client regardless of which API replica they are connected to, enabling horizontal scaling of the API layer.
 - **Event-Driven**: The Worker has no direct dependency on the API's internal topology — it only publishes an event.
@@ -113,15 +113,16 @@ A complete three-pillar observability stack:
 
 ### 7. CQRS-lite Read Model
 
-The API subscribes to `TransactionSubmittedEvent` and `TransactionProcessedEvent` and projects them into a dedicated `AccountActivityProjections` table. The frontend reads this table via `GET /api/accounts/my-account/activity`, which makes eventual consistency visible: a transaction is accepted first, then appears in the feed as the projection catches up, then transitions to its terminal status.
+The API subscribes to `TransactionSubmittedEvent` and `TransactionStatusChangedEvent` and projects them into a dedicated `AccountActivityProjections` table. The frontend reads this table via `GET /api/accounts/my-account/activity`, which makes eventual consistency visible: a transaction is accepted first, then appears in the feed as the projection catches up, then transitions through `Validated` / `Processing` to its terminal status.
 
-- **Projection idempotency**: repeated `TransactionProcessedEvent` deliveries are ignored once the projection is already in the target terminal status.
+- **Projection idempotency**: repeated terminal deliveries are ignored once the projection is already in a terminal state, and lower-order lifecycle events are prevented from regressing the read model.
 - **Replay story**: in development/test, `POST /api/maintenance/projections/account-activity/rebuild` rebuilds the read model from `Transactions`. A convenience script is included at `./rebuild-account-activity-projection.ps1`.
 
 ### 8. Domain Integrity & Type Safety
 
 - **Value Objects**: `Currency` is a strongly-typed value object rather than a raw string, enforcing valid ISO format at the boundary of the domain.
 - **Referential Integrity**: Database schema enforces foreign key relationships between `TransactionRecord` and `Account`.
+- **Showcase usability**: Newly provisioned accounts are seeded with a fixed starting balance of `1000`, so a first-time user can immediately exercise the async transaction lifecycle.
 - **Validation**: FluentValidation runs as an MVC filter, rejecting structurally invalid requests before they reach the controller body.
 
 ---
@@ -158,7 +159,7 @@ Located in `Client/e2e`.
 **Tech:** Playwright
 
 **Scope:**
-Simulates a real user registering, logging in, placing a trade, and verifying the UI updates via SignalR after the Worker processes the transaction. Includes both happy-path and failure scenarios.
+Simulates a real user registering, logging in, placing a trade, and verifying the UI settles on the correct terminal state through the asynchronous read model. Includes both happy-path and failure scenarios.
 
 ---
 

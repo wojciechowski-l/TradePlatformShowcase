@@ -1,10 +1,41 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Trade Platform E2E Flow', () => {
-  test('Registers, Logs in, and Submits a Transaction', async ({ page }) => {
+  test('Registers, Logs in, and Submits a Transaction', async ({ page, request }) => {
     const timestamp = new Date().getTime();
     const email = `playwright_user_${timestamp}@trade.com`;
+    const recipientEmail = `playwright_recipient_${timestamp}@trade.com`;
     const password = 'Password123!';
+
+    await request.post('http://localhost:8081/api/auth/register', {
+      data: {
+        email: recipientEmail,
+        password,
+      },
+    });
+
+    const loginResponse = await request.post('http://localhost:8081/api/auth/login?useCookies=false', {
+      data: {
+        email: recipientEmail,
+        password,
+      },
+    });
+
+    expect(loginResponse.ok()).toBeTruthy();
+
+    const loginPayload = await loginResponse.json();
+    const recipientToken = loginPayload.accessToken as string;
+
+    const provisionResponse = await request.post('http://localhost:8081/api/accounts/provision', {
+      headers: {
+        Authorization: `Bearer ${recipientToken}`,
+      },
+    });
+
+    expect(provisionResponse.ok()).toBeTruthy();
+
+    const recipientAccount = await provisionResponse.json();
+    const recipientAccountId = recipientAccount.id as string;
 
     await page.goto('/');
 
@@ -28,13 +59,14 @@ test.describe('Trade Platform E2E Flow', () => {
     const sourceInput = page.getByLabel('Source Account');
     await expect(sourceInput).toHaveValue(/ACC-\d+/);
 
-    await page.getByLabel('Target Account').fill('PLAYWRIGHT-TGT');
+    await page.getByLabel('Target Account').fill(recipientAccountId);
     await page.getByLabel('Amount').fill('500');
 
     await page.getByRole('button', { name: 'Submit Transaction' }).click();
 
     await expect(page.getByText('Success!')).toBeVisible();
     await expect(page.getByText(/Transaction ID:/i)).toBeVisible();
-    await expect(page.getByRole('alert').filter({ hasText: /Processed/ })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/Outgoing 500 USD/)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/^Processed$/)).toBeVisible({ timeout: 15000 });
   });
 });
