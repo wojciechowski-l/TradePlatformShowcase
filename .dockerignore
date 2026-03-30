@@ -1,0 +1,16 @@
+.git
+.vs
+TestResults
+Review
+
+**/bin
+**/obj
+**/node_modules
+**/playwright-report
+**/test-results
+**/dist
+**/coverage
+
+Client/node_modules
+Client/playwright-report
+Client/test-results

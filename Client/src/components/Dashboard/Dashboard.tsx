@@ -3,6 +3,7 @@ import { Box, Typography, Alert, Snackbar, CircularProgress, Chip, Divider, List
 import { CheckCircle as SuccessIcon } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 import { useSignalR } from '../../context/SignalRContext';
+import { createRequestId } from '../../utils/ids';
 import { 
     submitTransaction, 
     getMyAccountActivity,
@@ -30,7 +31,7 @@ export const Dashboard: React.FC = () => {
     const [myAccountId, setMyAccountId] = useState<string>(''); 
     const [loadingAccount, setLoadingAccount] = useState(true);
 
-    const idempotencyKeyRef = useRef(crypto.randomUUID());
+    const idempotencyKeyRef = useRef(createRequestId());
 
     const isTerminalStatus = (status: TransactionStatus) =>
         status === TransactionStatus.Processed || status === TransactionStatus.Failed;
@@ -179,7 +180,7 @@ export const Dashboard: React.FC = () => {
             const result = await submitTransaction(data, token, idempotencyKeyRef.current);
             setLastId(result.id);
             setPendingProjectionId(result.id);
-            idempotencyKeyRef.current = crypto.randomUUID();
+            idempotencyKeyRef.current = createRequestId();
         } catch (err: unknown) {
             if (err instanceof ApiValidationError) {
                 setErrors(err.validationErrors);

@@ -30,6 +30,25 @@ test.describe('Trade Platform UI (Mocked Backend)', () => {
         })
       });
     });
+
+    await page.route('**/api/accounts/my-account', async route => {
+      await route.fulfill({ status: 404, body: '' });
+    });
+
+    await page.route('**/api/accounts/provision', async route => {
+      await route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          id: 'MOCK-SRC',
+          currency: 'USD',
+          ownerId: 'mock-owner'
+        })
+      });
+    });
+
+    await page.route('**/api/accounts/my-account/activity', async route => {
+      await route.fulfill({ status: 200, body: JSON.stringify([]) });
+    });
   });
 
   test('Completes full flow with mocked backend', async ({ page }) => {
@@ -48,9 +67,8 @@ test.describe('Trade Platform UI (Mocked Backend)', () => {
     
     await page.getByRole('button', { name: 'Sign In' }).click();
 
-    await expect(page.getByText(`Welcome, ${email}`)).toBeVisible();
-
-    await page.getByLabel('Source Account').fill('MOCK-SRC');
+    const sourceAccount = page.getByLabel('Source Account');
+    await expect(sourceAccount).toHaveValue('MOCK-SRC');
     await page.getByLabel('Target Account').fill('MOCK-TGT');
     await page.getByLabel('Amount').fill('500');
 
