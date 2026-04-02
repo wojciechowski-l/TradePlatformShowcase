@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '../config';
+import { createRequestId } from '../utils/ids';
 
 export interface LoginRequest {
     email: string;
@@ -115,7 +116,7 @@ export const registerUser = async (creds: RegisterRequest): Promise<void> => {
 export const submitTransaction = async (
     data: TransactionRequest,
     token: string,
-    idempotencyKey: string = crypto.randomUUID()
+    idempotencyKey: string = createRequestId()
 ): Promise<TransactionResponse> => {
     const response = await fetch(`${API_BASE_URL}/api/transactions`, {
         method: 'POST',

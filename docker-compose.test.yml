@@ -39,6 +39,15 @@ services:
       timeout: 5s
       retries: 5
 
+  test-seq:
+    image: datalust/seq:latest
+    container_name: trade-test-seq
+    ports:
+      - "5342:80"
+    environment:
+      - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_ADMINPASSWORD=${SEQ_ADMIN_PASSWORD}
+
   test-migrator:
     build:
       context: .
@@ -113,18 +122,25 @@ services:
       context: ./Client
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: http://localhost:8081
+        VITE_API_URL: http://trade-api:8080
     container_name: trade-client-e2e
     ports:
       - "3001:80"
     depends_on:
       - test-api
 
-  test-seq:
-    image: datalust/seq:latest
-    container_name: trade-test-seq
-    ports:
-      - "5342:80"
+  test-playwright:
+    build:
+      context: ./Client
+      dockerfile: Dockerfile.playwright
+    container_name: trade-playwright-e2e
     environment:
-      - ACCEPT_EULA=Y
-      - SEQ_FIRSTRUN_ADMINPASSWORD=${SEQ_ADMIN_PASSWORD}
+      - BASE_URL=http://test-client:80
+      - API_URL=http://trade-api:8080
+      - CI=true
+    command: npx playwright test --fail-on-flaky-tests
+    volumes:
+      - ./Client/test-results:/app/test-results
+      - ./Client/playwright-report:/app/playwright-report
+    depends_on:
+      - test-client

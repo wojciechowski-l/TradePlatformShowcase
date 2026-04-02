@@ -18,6 +18,8 @@ try {
     Write-Information "Starting docker containers"
     docker compose -f docker-compose.test.yml up -d --build --remove-orphans
 
+    # The API image does not have curl/wget so we cannot use a Docker healthcheck for it.
+    # Poll the health endpoint from the host instead (port 8081 is exposed).
     Write-Information "Waiting for API readiness"
     $retryCount = 0
     $maxRetries = 45
@@ -51,17 +53,14 @@ try {
         exit 1
     }
 
-    Write-Information "Running Playwright tests"
-    Set-Location "$rootPath/Client"
-    $env:BASE_URL = "http://localhost:3001"
+    Write-Information "Waiting for Playwright tests to complete..."
+    
+    $playwrightExit = docker wait trade-playwright-e2e
 
-    Write-Information "Installing Playwright browsers..."
-    npx playwright install
+    docker logs trade-playwright-e2e
 
-    npx playwright test
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Playwright tests failed"
+    if ($playwrightExit -ne 0) {
+        Write-Error "Playwright tests failed with exit code $playwrightExit"
         exit 1
     }
 

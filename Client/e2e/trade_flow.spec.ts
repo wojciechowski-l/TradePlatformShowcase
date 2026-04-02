@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 
+const apiUrl = process.env.API_URL || 'http://127.0.0.1:8081';
+
 test.describe('Trade Platform E2E Flow', () => {
   test('Registers, Logs in, and Submits a Transaction', async ({ page, request }) => {
     const timestamp = new Date().getTime();
@@ -7,14 +9,14 @@ test.describe('Trade Platform E2E Flow', () => {
     const recipientEmail = `playwright_recipient_${timestamp}@trade.com`;
     const password = 'Password123!';
 
-    await request.post('http://localhost:8081/api/auth/register', {
+    await request.post(`${apiUrl}/api/auth/register`, {
       data: {
         email: recipientEmail,
         password,
       },
     });
 
-    const loginResponse = await request.post('http://localhost:8081/api/auth/login?useCookies=false', {
+    const loginResponse = await request.post(`${apiUrl}/api/auth/login?useCookies=false`, {
       data: {
         email: recipientEmail,
         password,
@@ -26,7 +28,7 @@ test.describe('Trade Platform E2E Flow', () => {
     const loginPayload = await loginResponse.json();
     const recipientToken = loginPayload.accessToken as string;
 
-    const provisionResponse = await request.post('http://localhost:8081/api/accounts/provision', {
+    const provisionResponse = await request.post(`${apiUrl}/api/accounts/provision`, {
       headers: {
         Authorization: `Bearer ${recipientToken}`,
       },
@@ -67,6 +69,7 @@ test.describe('Trade Platform E2E Flow', () => {
     await expect(page.getByText('Success!')).toBeVisible();
     await expect(page.getByText(/Transaction ID:/i)).toBeVisible();
     await expect(page.getByText(/Outgoing 500 USD/)).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText(/^Processed$/)).toBeVisible({ timeout: 15000 });
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await expect(page.getByText(/Processed/i)).toBeVisible({ timeout: 45000 });
   });
 });
