@@ -130,15 +130,17 @@ services:
       - test-api
 
   test-playwright:
-    image: mcr.microsoft.com/playwright:v1.58.2-noble
+    build:
+      context: ./Client
+      dockerfile: Dockerfile.playwright
     container_name: trade-playwright-e2e
-    working_dir: /app
-    volumes:
-      - ./Client:/app
     environment:
       - BASE_URL=http://test-client:80
       - API_URL=http://trade-api:8080
       - CI=true
-    command: sh -c "npm ci && npx playwright test"
+    command: npx playwright test --fail-on-flaky-tests
+    volumes:
+      - ./Client/test-results:/app/test-results
+      - ./Client/playwright-report:/app/playwright-report
     depends_on:
       - test-client

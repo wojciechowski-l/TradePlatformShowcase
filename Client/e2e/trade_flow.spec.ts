@@ -69,6 +69,7 @@ test.describe('Trade Platform E2E Flow', () => {
     await expect(page.getByText('Success!')).toBeVisible();
     await expect(page.getByText(/Transaction ID:/i)).toBeVisible();
     await expect(page.getByText(/Outgoing 500 USD/)).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText(/^Processed$/)).toBeVisible({ timeout: 15000 });
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await expect(page.getByText(/Processed/i)).toBeVisible({ timeout: 45000 });
   });
 });

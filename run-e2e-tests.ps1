@@ -53,20 +53,14 @@ try {
         exit 1
     }
 
-    # Once the API is up, test-client will start and its healthcheck (wget-based) will pass.
-    # test-playwright depends on test-client being healthy, so it starts automatically.
     Write-Information "Waiting for Playwright tests to complete..."
-    do {
-        Start-Sleep -Seconds 2
-        $status = docker inspect -f '{{.State.Status}}' trade-playwright-e2e
-    } until ($status -eq 'exited')
-
-    $playwrightExit = docker inspect -f '{{.State.ExitCode}}' trade-playwright-e2e
+    
+    $playwrightExit = docker wait trade-playwright-e2e
 
     docker logs trade-playwright-e2e
 
     if ($playwrightExit -ne 0) {
-        Write-Error "Playwright tests failed"
+        Write-Error "Playwright tests failed with exit code $playwrightExit"
         exit 1
     }
 
