@@ -116,6 +116,7 @@ A complete three-pillar observability stack:
 The API subscribes to `TransactionSubmittedEvent` and `TransactionStatusChangedEvent` and projects them into a dedicated `AccountActivityProjections` table. The frontend reads this table via `GET /api/accounts/my-account/activity`, which makes eventual consistency visible: a transaction is accepted first, then appears in the feed as the projection catches up, then transitions through `Validated` / `Processing` to its terminal status.
 
 - **Projection idempotency**: repeated terminal deliveries are ignored once the projection is already in a terminal state, and lower-order lifecycle events are prevented from regressing the read model.
+- **Projection integrity**: incoming rows are only created when the target account exists, so a failed transfer to a missing target does not fabricate inbound activity for a non-existent account.
 - **Replay story**: in development/test, `POST /api/maintenance/projections/account-activity/rebuild` rebuilds the read model from `Transactions`. A convenience script is included at `./rebuild-account-activity-projection.ps1`.
 
 ### 8. Domain Integrity & Type Safety
@@ -129,11 +130,12 @@ The API subscribes to `TransactionSubmittedEvent` and `TransactionStatusChangedE
 
 ## Architecture
 
-The solution is a distributed system composed of two .NET 10 services, a React frontend, and supporting infrastructure, orchestrated via Docker Compose:
+The solution is a distributed system composed of two .NET 10 services, a Blazor WebAssembly frontend, and supporting infrastructure, orchestrated via Docker Compose:
 
 - **TradePlatform.Api** — REST API and SignalR hub. Validates requests, enforces ownership, and dispatches commands via the Rebus Outbox.
 - **TradePlatform.Worker** — Background host. Consumes messages from the `trade-orders` queue, processes transactions, and publishes status events.
-- **Client** — React 19 + TypeScript + Vite + Material UI frontend.
+- **TradePlatform.BlazorClient** — Blazor WebAssembly frontend served by nginx, with `/api` and `/hubs` proxied back to the API container.
+- **E2E** — Standalone Playwright workspace for browser tests, decoupled from the frontend implementation.
 - **Infrastructure** — SQL Server 2022, RabbitMQ, Redis, Prometheus, Grafana, Seq.
 
 ---
@@ -154,12 +156,12 @@ Located in `TradePlatform.Tests`.
 
 ### 2. End-to-End (E2E) Tests
 
-Located in `Client/e2e`.
+Located in `E2E/e2e`.
 
 **Tech:** Playwright
 
 **Scope:**
-Simulates a real user registering, logging in, placing a trade, and verifying the UI settles on the correct terminal state through the asynchronous read model. Includes both happy-path and failure scenarios.
+Simulates a real user registering, logging in, placing a trade, and verifying the UI settles on the correct terminal state through the asynchronous read model. Includes both happy-path and failure scenarios. The E2E harness waits for both the API and Worker to be ready before Playwright starts, reducing cold-start flakiness in the async pipeline.
 
 ---
 
@@ -206,7 +208,7 @@ docker compose up -d --build
 | Layer | Technology |
 |---|---|
 | Backend | .NET 10, C#, Entity Framework Core 10 |
-| Frontend | React 19, TypeScript, Vite, Material UI |
+| Frontend | Blazor WebAssembly |
 | Messaging | Rebus 8 over RabbitMQ |
 | Database | SQL Server 2022 |
 | Real-time | ASP.NET Core SignalR with Redis backplane |

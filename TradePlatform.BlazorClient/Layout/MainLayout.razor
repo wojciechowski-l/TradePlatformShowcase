@@ -1,0 +1,19 @@
+@inherits LayoutComponentBase
+@inject AuthState AuthState
+
+<div class="shell">
+    <header class="topbar">
+        <div>
+            <a class="brand" href="/">TradePlatform Enterprise</a>
+        </div>
+
+        @if (AuthState.IsAuthenticated)
+        {
+            <button class="ghost-button" @onclick="AuthState.Logout">Logout</button>
+        }
+    </header>
+
+    <main class="content-panel">
+        @Body
+    </main>
+</div>

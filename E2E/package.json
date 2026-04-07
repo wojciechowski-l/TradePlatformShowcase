@@ -1,0 +1,13 @@
+{
+  "name": "tradeplatform-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:e2e": "playwright test",
+    "codegen": "playwright codegen"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.59.1"
+  }
+}

@@ -153,10 +153,8 @@ services:
 
   client:
     build:
-      context: ./Client
-      dockerfile: Dockerfile
-      args:
-        - VITE_API_URL=http://localhost:3000
+      context: .
+      dockerfile: TradePlatform.BlazorClient/Dockerfile
     container_name: trade-client
     ports:
       - "3000:80"

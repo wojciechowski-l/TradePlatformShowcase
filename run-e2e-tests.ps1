@@ -18,40 +18,83 @@ try {
     Write-Information "Starting docker containers"
     docker compose -f docker-compose.test.yml up -d --build --remove-orphans
 
-    # The API image does not have curl/wget so we cannot use a Docker healthcheck for it.
-    # Poll the health endpoint from the host instead (port 8081 is exposed).
-    Write-Information "Waiting for API readiness"
-    $retryCount = 0
-    $maxRetries = 45
-    $apiReady = $false
+    function Wait-ForHttpEndpoint {
+        param(
+            [string]$Name,
+            [string]$Uri,
+            [int]$MaxRetries = 45,
+            [int]$DelaySeconds = 2
+        )
 
-    while (-not $apiReady -and $retryCount -lt $maxRetries) {
-        $retryCount++
-        try {
-            $response = Invoke-WebRequest `
-                -Uri "http://127.0.0.1:8081/health" `
-                -Method Head `
-                -ErrorAction Stop `
-                -UseBasicParsing
+        Write-Information "Waiting for $Name readiness"
 
-            if ($response.StatusCode -eq 200) {
-                $apiReady = $true
-                Write-Information "API is online"
-            }
-        } catch {}
+        $retryCount = 0
+        while ($retryCount -lt $MaxRetries) {
+            $retryCount++
+            try {
+                $response = Invoke-WebRequest `
+                    -Uri $Uri `
+                    -Method Get `
+                    -ErrorAction Stop `
+                    -UseBasicParsing
 
-        if (-not $apiReady) {
-            Write-Information "Waiting for API ($retryCount/$maxRetries)"
-            Start-Sleep -Seconds 2
+                if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300) {
+                    Write-Information "$Name is online"
+                    return
+                }
+            } catch {}
+
+            Write-Information "Waiting for $Name ($retryCount/$MaxRetries)"
+            Start-Sleep -Seconds $DelaySeconds
         }
+
+        throw "$Name startup timeout"
     }
 
-    if (-not $apiReady) {
-        Write-Error "API startup timeout"
-        docker logs trade-migrator-e2e --tail 20
-        docker logs trade-api-e2e --tail 20
-        exit 1
+    function Wait-ForWorkerReady {
+        param(
+            [int]$MaxRetries = 60,
+            [int]$DelaySeconds = 2
+        )
+
+        Write-Information "Waiting for Worker readiness"
+
+        $retryCount = 0
+        while ($retryCount -lt $MaxRetries) {
+            $retryCount++
+
+            $metricsReady = $false
+            try {
+                $response = Invoke-WebRequest `
+                    -Uri "http://127.0.0.1:9091/metrics" `
+                    -Method Get `
+                    -ErrorAction Stop `
+                    -UseBasicParsing
+
+                if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300) {
+                    $metricsReady = $true
+                }
+            } catch {}
+
+            $workerLogs = docker logs trade-worker-e2e 2>&1 | Out-String
+            $logReady = $workerLogs -match "Worker starting up"
+
+            if ($metricsReady -or $logReady) {
+                Write-Information "Worker is online"
+                return
+            }
+
+            Write-Information "Waiting for Worker ($retryCount/$MaxRetries)"
+            Start-Sleep -Seconds $DelaySeconds
+        }
+
+        throw "Worker startup timeout"
     }
+
+    # The API image does not have curl/wget so we cannot use a Docker healthcheck for it.
+    # Poll the host-exposed endpoints instead.
+    Wait-ForHttpEndpoint -Name "API" -Uri "http://127.0.0.1:8081/health"
+    Wait-ForWorkerReady -MaxRetries 60
 
     Write-Information "Waiting for Playwright tests to complete..."
     

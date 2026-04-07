@@ -25,7 +25,9 @@ TradePlatform.Worker         — .NET Worker host: Rebus consumer, transaction p
 
 TradePlatform.Tests          — xUnit unit + integration tests. Testcontainers-backed.
 
-Client                       — React 19 / TypeScript / Vite / Material UI SPA.
+TradePlatform.BlazorClient   — Blazor WebAssembly SPA.
+
+E2E                          — Playwright workspace and browser test runner.
 ```
 
 Dependency direction:
@@ -84,7 +86,7 @@ Browser
 | grafana    | grafana/grafana                  | 3100                 | Dashboard visualisation               |
 | seq        | datalust/seq                     | 5341                 | Structured log aggregation            |
 | migrator   | Api image (`--migrate-only`)     | —                    | One-shot EF Core migration runner     |
-| client     | Nginx-served Vite build          | 3000                 | React SPA                             |
+| client     | Nginx-served Blazor publish      | 3000                 | Blazor WebAssembly SPA                |
 
 ---
 
@@ -153,8 +155,11 @@ the correct API replica regardless of which replica holds the client's WebSocket
 
 **7. Client**
 Receives `ReceiveStatusUpdate` on the SignalR connection and updates the UI. The dashboard
-also polls the account-activity projection until a terminal status is observed, so a
-missed real-time push does not leave the user stuck on an intermediate state.
+also polls the account-activity projection until a terminal status is observed, with a
+60-second fallback window, so a missed real-time push or a slow cold-start path does not
+leave the user stuck on an intermediate state. The Blazor app is published as static
+assets and served by nginx, which proxies `/api/*` and `/hubs/*` back to the API so the
+browser uses a single frontend origin.
 
 ---
 
@@ -201,6 +206,9 @@ The two checks are independently enforced. A bypass of one does not bypass the o
 
 **Delivery guarantee:** At-least-once. All message handlers must be idempotent.
 `TransactionCreatedHandler` satisfies this via a status guard before any write.
+`AccountActivityProjectionHandler` also avoids manufacturing an incoming projection row
+when the target account does not exist, which keeps failed missing-target transfers
+one-sided in the read model.
 
 **Consistency model:** Transactions are eventually consistent. The client observes status
 transitions asynchronously via SignalR after the Worker commits.
@@ -247,9 +255,11 @@ Testcontainers (`MsSqlContainer`, `RabbitMqContainer`). Authentication replaced 
 `urn:tradeplatform:accountid`) via HTTP headers. Ownership checks, FluentValidation
 filter, and full Rebus pipeline run unmodified.
 
-**Layer 3 — E2E tests** (`Client/e2e`): Playwright against the full
+**Layer 3 — E2E tests** (`E2E/e2e`): Playwright against the full
 `docker-compose.test.yml` stack. Covers registration, login, trade submission, and
-SignalR status update receipt.
+SignalR status update receipt. The runner waits for API health and Worker startup before
+executing browser tests so cold infrastructure startup does not masquerade as frontend
+flakiness.
 
 ---
 

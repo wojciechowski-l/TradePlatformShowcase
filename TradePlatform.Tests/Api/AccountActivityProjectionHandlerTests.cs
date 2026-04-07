@@ -4,6 +4,8 @@ using Moq;
 using TradePlatform.Api.Handlers;
 using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
+using TradePlatform.Core.Entities;
+using TradePlatform.Core.ValueObjects;
 using TradePlatform.Tests;
 using TradePlatform.Infrastructure.Data;
 
@@ -20,11 +22,16 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
         await using var context = await _fixture.CreateContextAsync(TestContext.Current.CancellationToken);
         var handler = CreateHandler(context);
         var submittedAt = DateTime.UtcNow;
+        var sourceAccountId = $"ACC-SRC-{Guid.NewGuid():N}"[..18];
+        var targetAccountId = $"ACC-TGT-{Guid.NewGuid():N}"[..18];
+
+        await SeedAccountAsync(context, sourceAccountId);
+        await SeedAccountAsync(context, targetAccountId);
 
         await handler.Handle(new TransactionSubmittedEvent(
             Guid.NewGuid(),
-            "ACC-100",
-            "ACC-200",
+            sourceAccountId,
+            targetAccountId,
             150m,
             "USD",
             submittedAt));
@@ -34,8 +41,8 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
             .ToListAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(2, rows.Count);
-        Assert.Contains(rows, row => row.AccountId == "ACC-100" && row.Direction == AccountActivityDirection.Outgoing);
-        Assert.Contains(rows, row => row.AccountId == "ACC-200" && row.Direction == AccountActivityDirection.Incoming);
+        Assert.Contains(rows, row => row.AccountId == sourceAccountId && row.Direction == AccountActivityDirection.Outgoing);
+        Assert.Contains(rows, row => row.AccountId == targetAccountId && row.Direction == AccountActivityDirection.Incoming);
         Assert.All(rows, row => Assert.Equal(TransactionStatus.Pending, row.Status));
     }
 
@@ -47,19 +54,24 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
         var transactionId = Guid.NewGuid();
         var submittedAt = DateTime.UtcNow.AddSeconds(-2);
         var processedAt = DateTime.UtcNow;
+        var sourceAccountId = $"ACC-SRC-{Guid.NewGuid():N}"[..18];
+        var targetAccountId = $"ACC-TGT-{Guid.NewGuid():N}"[..18];
+
+        await SeedAccountAsync(context, sourceAccountId);
+        await SeedAccountAsync(context, targetAccountId);
 
         await handler.Handle(new TransactionSubmittedEvent(
             transactionId,
-            "ACC-100",
-            "ACC-200",
+            sourceAccountId,
+            targetAccountId,
             150m,
             "USD",
             submittedAt));
 
         await handler.Handle(new TransactionStatusChangedEvent(
             transactionId,
-            "ACC-100",
-            "ACC-200",
+            sourceAccountId,
+            targetAccountId,
             150m,
             "USD",
             TransactionStatus.Processing,
@@ -86,11 +98,16 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
         var handler = CreateHandler(context);
         var transactionId = Guid.NewGuid();
         var processedAt = DateTime.UtcNow;
+        var sourceAccountId = $"ACC-SRC-{Guid.NewGuid():N}"[..18];
+        var targetAccountId = $"ACC-TGT-{Guid.NewGuid():N}"[..18];
+
+        await SeedAccountAsync(context, sourceAccountId);
+        await SeedAccountAsync(context, targetAccountId);
 
         await handler.Handle(new TransactionStatusChangedEvent(
             transactionId,
-            "ACC-100",
-            "ACC-200",
+            sourceAccountId,
+            targetAccountId,
             150m,
             "USD",
             TransactionStatus.Processing,
@@ -120,19 +137,24 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
         var submittedAt = DateTime.UtcNow.AddSeconds(-2);
         var firstProcessedAt = DateTime.UtcNow.AddSeconds(-1);
         var duplicateProcessedAt = DateTime.UtcNow;
+        var sourceAccountId = $"ACC-SRC-{Guid.NewGuid():N}"[..18];
+        var targetAccountId = $"ACC-TGT-{Guid.NewGuid():N}"[..18];
+
+        await SeedAccountAsync(context, sourceAccountId);
+        await SeedAccountAsync(context, targetAccountId);
 
         await handler.Handle(new TransactionSubmittedEvent(
             transactionId,
-            "ACC-100",
-            "ACC-200",
+            sourceAccountId,
+            targetAccountId,
             150m,
             "USD",
             submittedAt));
 
         await handler.Handle(new TransactionStatusChangedEvent(
             transactionId,
-            "ACC-100",
-            "ACC-200",
+            sourceAccountId,
+            targetAccountId,
             150m,
             "USD",
             TransactionStatus.Processing,
@@ -141,8 +163,8 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
 
         await handler.Handle(new TransactionStatusChangedEvent(
             transactionId,
-            "ACC-100",
-            "ACC-200",
+            sourceAccountId,
+            targetAccountId,
             150m,
             "USD",
             TransactionStatus.Processing,
@@ -169,11 +191,16 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
         var transactionId = Guid.NewGuid();
         var validatedAt = DateTime.UtcNow;
         var submittedAt = validatedAt.AddSeconds(-5);
+        var sourceAccountId = $"ACC-SRC-{Guid.NewGuid():N}"[..18];
+        var targetAccountId = $"ACC-TGT-{Guid.NewGuid():N}"[..18];
+
+        await SeedAccountAsync(context, sourceAccountId);
+        await SeedAccountAsync(context, targetAccountId);
 
         await handler.Handle(new TransactionStatusChangedEvent(
             transactionId,
-            "ACC-100",
-            "ACC-200",
+            sourceAccountId,
+            targetAccountId,
             150m,
             "USD",
             TransactionStatus.Pending,
@@ -182,8 +209,8 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
 
         await handler.Handle(new TransactionSubmittedEvent(
             transactionId,
-            "ACC-100",
-            "ACC-200",
+            sourceAccountId,
+            targetAccountId,
             150m,
             "USD",
             submittedAt));
@@ -210,19 +237,24 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
         var submittedAt = DateTime.UtcNow.AddSeconds(-5);
         var processedAt = DateTime.UtcNow;
         var staleProcessingAt = processedAt.AddSeconds(1);
+        var sourceAccountId = $"ACC-SRC-{Guid.NewGuid():N}"[..18];
+        var targetAccountId = $"ACC-TGT-{Guid.NewGuid():N}"[..18];
+
+        await SeedAccountAsync(context, sourceAccountId);
+        await SeedAccountAsync(context, targetAccountId);
 
         await handler.Handle(new TransactionSubmittedEvent(
             transactionId,
-            "ACC-100",
-            "ACC-200",
+            sourceAccountId,
+            targetAccountId,
             150m,
             "USD",
             submittedAt));
 
         await handler.Handle(new TransactionStatusChangedEvent(
             transactionId,
-            "ACC-100",
-            "ACC-200",
+            sourceAccountId,
+            targetAccountId,
             150m,
             "USD",
             TransactionStatus.Processing,
@@ -231,8 +263,8 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
 
         await handler.Handle(new TransactionStatusChangedEvent(
             transactionId,
-            "ACC-100",
-            "ACC-200",
+            sourceAccountId,
+            targetAccountId,
             150m,
             "USD",
             TransactionStatus.Validated,
@@ -252,10 +284,78 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
         });
     }
 
+    [Fact]
+    public async Task Handle_FailedTransactionForMissingTarget_Should_Not_Create_IncomingProjection()
+    {
+        await using var context = await _fixture.CreateContextAsync(TestContext.Current.CancellationToken);
+        var handler = CreateHandler(context);
+        var transactionId = Guid.NewGuid();
+        var sourceAccountId = $"ACC-SRC-{Guid.NewGuid():N}"[..18];
+        var missingTargetAccountId = $"ACC-TGT-{Guid.NewGuid():N}"[..18];
+        var submittedAt = DateTime.UtcNow.AddSeconds(-2);
+        var failedAt = DateTime.UtcNow;
+
+        await SeedAccountAsync(context, sourceAccountId);
+
+        await handler.Handle(new TransactionSubmittedEvent(
+            transactionId,
+            sourceAccountId,
+            missingTargetAccountId,
+            150m,
+            "USD",
+            submittedAt));
+
+        await handler.Handle(new TransactionStatusChangedEvent(
+            transactionId,
+            sourceAccountId,
+            missingTargetAccountId,
+            150m,
+            "USD",
+            TransactionStatus.Pending,
+            TransactionStatus.Failed,
+            failedAt,
+            "Target account does not exist."));
+
+        var rows = await context.AccountActivityProjections
+            .Where(p => p.TransactionId == transactionId)
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Single(rows);
+        Assert.Equal(sourceAccountId, rows[0].AccountId);
+        Assert.Equal(AccountActivityDirection.Outgoing, rows[0].Direction);
+        Assert.Equal(TransactionStatus.Failed, rows[0].Status);
+        Assert.Equal("Target account does not exist.", rows[0].FailureReason);
+    }
+
     private static AccountActivityProjectionHandler CreateHandler(TradeContext context)
     {
         return new AccountActivityProjectionHandler(
             context,
             Mock.Of<ILogger<AccountActivityProjectionHandler>>());
+    }
+
+    private static async Task SeedAccountAsync(TradeContext context, string accountId)
+    {
+        var ownerId = Guid.NewGuid().ToString();
+
+        context.Users.Add(new ApplicationUser
+        {
+            Id = ownerId,
+            UserName = $"user-{ownerId}",
+            NormalizedUserName = $"USER-{ownerId}".ToUpperInvariant(),
+            Email = $"{ownerId}@test.local",
+            NormalizedEmail = $"{ownerId}@test.local".ToUpperInvariant(),
+            FullName = "Projection Test User"
+        });
+
+        context.Accounts.Add(new Account
+        {
+            Id = accountId,
+            OwnerId = ownerId,
+            Currency = Currency.FromCode("USD"),
+            Balance = 1000m
+        });
+
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 }

@@ -100,6 +100,8 @@ services:
       context: .
       dockerfile: TradePlatform.Worker/Dockerfile
     container_name: trade-worker-e2e
+    ports:
+      - "9091:9091"
     environment:
       - ConnectionStrings__DefaultConnection=Server=test-db;Database=TradePlatformDb;User Id=sa;Password=${SQL_SA_PASSWORD};TrustServerCertificate=True;
       - RabbitMQ__Host=trade-test-rabbit
@@ -119,10 +121,8 @@ services:
 
   test-client:
     build:
-      context: ./Client
-      dockerfile: Dockerfile
-      args:
-        VITE_API_URL: http://trade-api:8080
+      context: .
+      dockerfile: TradePlatform.BlazorClient/Dockerfile
     container_name: trade-client-e2e
     ports:
       - "3001:80"
@@ -131,7 +131,7 @@ services:
 
   test-playwright:
     build:
-      context: ./Client
+      context: ./E2E
       dockerfile: Dockerfile.playwright
     container_name: trade-playwright-e2e
     environment:
@@ -140,7 +140,8 @@ services:
       - CI=true
     command: npx playwright test --fail-on-flaky-tests
     volumes:
-      - ./Client/test-results:/app/test-results
-      - ./Client/playwright-report:/app/playwright-report
+      - ./E2E/test-results:/app/test-results
+      - ./E2E/playwright-report:/app/playwright-report
     depends_on:
       - test-client
+      - test-worker

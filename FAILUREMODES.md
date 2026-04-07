@@ -160,8 +160,48 @@ while Redis is unavailable.
 **Recovery:** The client will not receive a real-time update. Since `TransactionRecord`
 in the database reflects the correct final state, a page refresh or explicit status poll
 would surface the correct status. The dashboard now polls the activity projection until a
-terminal status is observed, so the user can still converge on the right state without
-the real-time push.
+terminal status is observed for up to 60 seconds, so the user can still converge on the
+right state without the real-time push.
+
+---
+
+## 7.5. Cold startup delays Worker readiness during E2E runs
+
+**Site:** `docker-compose.test.yml` stack startup / `run-e2e-tests.ps1`
+**Code path:** API health endpoint becomes reachable before the Worker is fully started
+and subscribed, while Playwright begins driving the async trade flow.
+
+**State produced:**
+- The HTTP write path succeeds and returns `202 Accepted`.
+- The Worker may not yet be consuming from `trade-orders`, delaying status transitions.
+- The frontend can observe a non-terminal projected state for longer than usual on the
+  first run after containers start.
+
+**System state:** Eventually consistent but temporarily slow to converge. This is a
+startup-timing issue, not a data-loss issue.
+
+**Recovery:** `run-e2e-tests.ps1` now waits for both API health and Worker startup before
+launching Playwright. The Blazor dashboard also keeps polling the projection for up to
+60 seconds, which gives the read model time to catch up on slow cold starts.
+
+---
+
+## 7.6. Transfer targets a missing account
+
+**Site:** `TransactionCreatedHandler` validation and `AccountActivityProjectionHandler`
+**Code path:** The Worker rejects a transaction because the target account does not exist.
+
+**State produced:**
+- `TransactionRecord` transitions to `Failed`.
+- The source account receives an outgoing projection row with the failure reason.
+- No incoming projection row is created for the missing target account.
+
+**System state:** The read model is intentionally asymmetric. It shows failed outgoing
+activity for the real source account only, and does not fabricate activity for a target
+account that never existed.
+
+**Recovery:** No recovery action is required. This is the intended terminal business
+outcome for the attempted transfer.
 
 ---
 

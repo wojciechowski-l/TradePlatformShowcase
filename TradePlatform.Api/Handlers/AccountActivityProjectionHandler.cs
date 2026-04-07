@@ -29,19 +29,22 @@ public partial class AccountActivityProjectionHandler(
             null,
             allowStatusRegression: false);
 
-        await UpsertProjectionAsync(
-            message.TransactionId,
-            message.TargetAccountId,
-            message.SourceAccountId,
-            AccountActivityDirection.Incoming,
-            message.Amount,
-            message.Currency,
-            TransactionStatus.Pending,
-            message.SubmittedAtUtc,
-            null,
-            message.SubmittedAtUtc,
-            null,
-            allowStatusRegression: false);
+        if (await AccountExistsAsync(message.TargetAccountId))
+        {
+            await UpsertProjectionAsync(
+                message.TransactionId,
+                message.TargetAccountId,
+                message.SourceAccountId,
+                AccountActivityDirection.Incoming,
+                message.Amount,
+                message.Currency,
+                TransactionStatus.Pending,
+                message.SubmittedAtUtc,
+                null,
+                message.SubmittedAtUtc,
+                null,
+                allowStatusRegression: false);
+        }
 
         await context.SaveChangesAsync();
         LogProjectionCreated(logger, message.TransactionId);
@@ -69,19 +72,22 @@ public partial class AccountActivityProjectionHandler(
                 message.FailureReason,
                 allowStatusRegression: true);
 
-            await UpsertProjectionAsync(
-                message.TransactionId,
-                message.TargetAccountId,
-                message.SourceAccountId,
-                AccountActivityDirection.Incoming,
-                message.Amount,
-                message.Currency,
-                message.CurrentStatus,
-                message.ChangedAtUtc,
-                GetCompletedAtUtc(message.CurrentStatus, message.ChangedAtUtc),
-                message.ChangedAtUtc,
-                message.FailureReason,
-                allowStatusRegression: true);
+            if (await AccountExistsAsync(message.TargetAccountId))
+            {
+                await UpsertProjectionAsync(
+                    message.TransactionId,
+                    message.TargetAccountId,
+                    message.SourceAccountId,
+                    AccountActivityDirection.Incoming,
+                    message.Amount,
+                    message.Currency,
+                    message.CurrentStatus,
+                    message.ChangedAtUtc,
+                    GetCompletedAtUtc(message.CurrentStatus, message.ChangedAtUtc),
+                    message.ChangedAtUtc,
+                    message.FailureReason,
+                    allowStatusRegression: true);
+            }
 
             await context.SaveChangesAsync();
             LogProjectionRecovered(logger, message.TransactionId, message.CurrentStatus);
@@ -202,6 +208,13 @@ public partial class AccountActivityProjectionHandler(
         return status is TransactionStatus.Processed or TransactionStatus.Failed
             ? changedAtUtc
             : null;
+    }
+
+    private Task<bool> AccountExistsAsync(string accountId)
+    {
+        return context.Accounts
+            .AsNoTracking()
+            .AnyAsync(a => a.Id == accountId);
     }
 
     [LoggerMessage(LogLevel.Information, "Created activity projection entries for Tx {TransactionId}")]

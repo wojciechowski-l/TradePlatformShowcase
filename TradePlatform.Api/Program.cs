@@ -89,9 +89,16 @@ builder.Services.AddCors(options =>
     {
         policy.WithOrigins(
             "http://localhost:3000",
+            "http://localhost:3002",
             "http://localhost:3001",
+            "http://localhost:3003",
+            "https://localhost:7182",
             "http://test-client",
-            "http://test-client:80")
+            "http://test-client:80",
+            "http://trade-blazor-client",
+            "http://trade-blazor-client:80",
+            "http://test-blazor-client",
+            "http://test-blazor-client:80")
         .AllowAnyHeader()
         .AllowAnyMethod()
         .AllowCredentials();

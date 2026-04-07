@@ -284,14 +284,14 @@ standard EF Core configuration and adds no meaningful complexity.
 `TradePlatform.Infrastructure/Services/TransactionService.cs`,
 `TradePlatform.Core/Entities/IdempotencyKey.cs`,
 `TradePlatform.Infrastructure/Data/TradeContext.cs`,
-`Client/src/services/api.ts`, `Client/src/components/Dashboard/Dashboard.tsx`
+`TradePlatform.BlazorClient/Services/ApiClient.cs`, `TradePlatform.BlazorClient/Components/TradeShowcase.razor`
 
 **Decision:** `POST /api/transactions` accepts an optional `Idempotency-Key` header
 (UUID). The key is stored in the `IdempotencyKeys` table, scoped per user, with a 24-hour
 TTL. The check, the `IdempotencyKey` row insert, and the `TransactionRecord` insert all
 occur inside the same `RebusSqlTransactionScopeManager` transaction. A `UNIQUE` index on
-`(Key, UserId)` is the enforcement point. The client generates the key once on form mount
-via `useRef` and rotates it only on success.
+`(Key, UserId)` is the enforcement point. The server honours reused keys when the client
+resubmits the same logical operation.
 
 **Reasoning:** Without this, a manual resubmit after a lost response (Failure Mode 2)
 creates a duplicate `TransactionRecord`. Application-level read-check-then-insert without
@@ -311,11 +311,14 @@ behave as before.
   Server. The `IdempotencyKeys` table participates in the same transaction as the domain
   write, which a Redis check cannot. Rejected.
 
-**Key lifecycle:**
-- Generated: `crypto.randomUUID()` on form mount (`useRef` in `Dashboard`).
-- Transmitted: `Idempotency-Key` request header on every submit attempt.
-- Rotated: on successful `202 Accepted` response (next submission is a new intent).
-- Preserved: on any error (next click retries the same logical operation).
+**Current client behaviour:**
+- Generated: `Guid.NewGuid().ToString()` at submit time in the Blazor dashboard.
+- Transmitted: `Idempotency-Key` request header on each submit click.
+- Rotated: automatically on the next submit because a new key is generated per click.
+- Preserved: not currently preserved across failed retries in the Blazor client.
+
+**Server-side capability:**
+- The API still supports true idempotent retry semantics when the same key is reused.
 - Expired: server-side, entries older than 24 hours are excluded from lookup. Cleanup
   of expired rows is not yet automated; the `IX_IdempotencyKeys_CreatedAtUtc` index
   supports an efficient future sweep job.
@@ -325,3 +328,48 @@ submits the same transaction twice as two distinct operations (e.g., pays the sa
 to the same account on two separate days). Because the key rotates on success, this is
 handled correctly — each successful submission produces a new key. The 24-hour TTL bounds
 the deduplication window.
+
+---
+
+## ADR-014 — Standardize on a Blazor WebAssembly client
+
+**Status:** Implemented
+**Files:** `TradePlatform.BlazorClient/Program.cs`,
+`TradePlatform.BlazorClient/Components/TradeShowcase.razor`,
+`TradePlatform.BlazorClient/Services/ApiClient.cs`,
+`TradePlatform.BlazorClient/Services/TradeSignalRService.cs`,
+`TradePlatform.BlazorClient/Dockerfile`,
+`TradePlatform.BlazorClient/nginx.conf`,
+`docker-compose.yml`,
+`docker-compose.test.yml`
+
+**Decision:** Use a Blazor WebAssembly client, served by nginx, as the sole frontend
+implementation. Browser E2E tests were moved into a standalone `E2E` workspace so the
+test harness does not depend on the frontend project itself.
+
+**Reasoning:** The showcase now carries a single frontend implementation. nginx serves
+the published Blazor assets and proxies `/api` and `/hubs`, which preserves a simple
+single-origin browser model while keeping the API and SignalR topology unchanged.
+
+**Trade-off:** Blazor adds WebAssembly runtime assets and a .NET client runtime. In
+exchange, the repo no longer has feature-parity drift between two frontends.
+
+---
+
+## ADR-015 — Do not create incoming projection rows for missing target accounts
+
+**Status:** Implemented
+**Files:** `TradePlatform.Api/Handlers/AccountActivityProjectionHandler.cs`,
+`TradePlatform.Tests/Api/AccountActivityProjectionHandlerTests.cs`
+
+**Decision:** The account-activity projection creates an incoming row only when the
+target account exists. When a transfer fails because the target account is missing, the
+projection contains only the source account's outgoing row with the failure reason.
+
+**Reasoning:** Creating an incoming row for a non-existent target account fabricates read
+model state for an entity that never legitimately participated in the transaction. The
+projection should mirror observable account activity, not merely echo both sides of the
+attempted payload.
+
+**Trade-off:** The read model is intentionally asymmetric for this failure case. That
+asymmetry is preferable to showing fake inbound activity.
