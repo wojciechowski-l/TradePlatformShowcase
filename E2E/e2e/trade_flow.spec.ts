@@ -1,62 +1,55 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
-const apiUrl = process.env.API_URL || 'http://127.0.0.1:8081';
+async function register(page: Page, email: string, password: string) {
+  await page.getByRole('button', { name: /need an account\? register/i }).click();
+  await expect(page.getByRole('heading', { name: 'Create Account' })).toBeVisible();
+  await page.locator('#register-email').fill(email);
+  await page.locator('#register-password').fill(password);
+  await page.getByRole('button', { name: 'Register' }).click();
+
+  await expect(page.getByRole('alert')).toContainText('Registration Successful');
+  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
+}
+
+async function login(page: Page, email: string, password: string) {
+  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
+  await page.locator('#auth-email').fill(email);
+  await page.locator('#auth-password').fill(password);
+  await page.getByRole('button', { name: 'Sign In' }).click();
+
+  const sourceAccountInput = page.getByLabel('Source Account');
+  await expect(sourceAccountInput).toHaveValue(/ACC-\d+/, { timeout: 15000 });
+}
+
+async function logout(page: Page) {
+  await page.getByRole('button', { name: 'Logout' }).click();
+  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
+}
+
+async function registerAndLogin(page: Page, email: string, password: string) {
+  await page.goto('/');
+  await register(page, email, password);
+  await login(page, email, password);
+}
 
 test.describe('Trade Platform E2E Flow', () => {
-  test('Registers, Logs in, and Submits a Transaction', async ({ page, request }) => {
-    const timestamp = new Date().getTime();
-    const email = `playwright_user_${timestamp}@trade.com`;
+  test('Registers, logs in, and submits a transaction', async ({ page }) => {
+    test.setTimeout(120000);
+
+    const timestamp = Date.now();
+    const senderEmail = `playwright_user_${timestamp}@trade.com`;
     const recipientEmail = `playwright_recipient_${timestamp}@trade.com`;
     const password = 'Password123!';
 
-    await request.post(`${apiUrl}/api/auth/register`, {
-      data: {
-        email: recipientEmail,
-        password,
-      },
-    });
+    await registerAndLogin(page, recipientEmail, password);
 
-    const loginResponse = await request.post(`${apiUrl}/api/auth/login?useCookies=false`, {
-      data: {
-        email: recipientEmail,
-        password,
-      },
-    });
+    const recipientAccountInput = page.getByLabel('Source Account');
+    await expect(recipientAccountInput).toHaveValue(/ACC-\d+/);
+    const recipientAccountId = await recipientAccountInput.inputValue();
 
-    expect(loginResponse.ok()).toBeTruthy();
+    await logout(page);
 
-    const loginPayload = await loginResponse.json();
-    const recipientToken = loginPayload.accessToken as string;
-
-    const provisionResponse = await request.post(`${apiUrl}/api/accounts/provision`, {
-      headers: {
-        Authorization: `Bearer ${recipientToken}`,
-      },
-    });
-
-    expect(provisionResponse.ok()).toBeTruthy();
-
-    const recipientAccount = await provisionResponse.json();
-    const recipientAccountId = recipientAccount.id as string;
-
-    await page.goto('/');
-
-    await page.getByRole('button', { name: /need an account\? register/i }).click();
-
-    await page.getByLabel('Email').fill(email);
-    await page.getByLabel('Password').fill(password);
-
-    await page.getByRole('button', { name: 'Register' }).click();
-
-    await expect(page.getByRole('alert')).toContainText('Registration Successful');
-    await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
-
-    await page.getByLabel('Email').fill(email);
-    await page.getByLabel('Password').fill(password);
-
-    await page.getByRole('button', { name: 'Sign In' }).click();
-
-    await expect(page.getByText(`Welcome, ${email}`)).toBeVisible();
+    await registerAndLogin(page, senderEmail, password);
 
     const sourceInput = page.getByLabel('Source Account');
     await expect(sourceInput).toHaveValue(/ACC-\d+/);
@@ -66,10 +59,33 @@ test.describe('Trade Platform E2E Flow', () => {
 
     await page.getByRole('button', { name: 'Submit Transaction' }).click();
 
-    await expect(page.getByText('Success!')).toBeVisible();
-    await expect(page.getByText(/Transaction ID:/i)).toBeVisible();
-    await expect(page.getByText(/Outgoing 500 USD/)).toBeVisible({ timeout: 15000 });
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await expect(page.getByText('Processed').first()).toBeVisible({ timeout: 45000 });
+    const successAlert = page.getByRole('alert').filter({ hasText: 'Transaction ID:' });
+    await expect(successAlert).toBeVisible();
+    await expect(successAlert).toContainText('Success!');
+
+    const transactionAlertText = await successAlert.textContent();
+    const transactionIdMatch = transactionAlertText?.match(
+      /Transaction ID:\s*([0-9a-fA-F-]{36})/
+    );
+
+    expect(transactionIdMatch).toBeTruthy();
+    const transactionId = transactionIdMatch![1];
+
+    await expect
+      .poll(
+        async () => {
+          const statuses = await page.getByRole('status').allTextContents();
+          const transactionStatus = statuses.find((status) =>
+            status.includes(`Transaction ${transactionId} is now `)
+          );
+
+          return transactionStatus ?? '';
+        },
+        {
+          timeout: 90000,
+          intervals: [1000, 2000, 5000],
+        }
+      )
+      .toContain(`Transaction ${transactionId} is now Processed!`);
   });
 });

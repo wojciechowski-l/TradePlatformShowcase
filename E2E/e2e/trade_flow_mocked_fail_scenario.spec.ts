@@ -1,29 +1,22 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
-test.describe('Trade Platform UI - Auth Failures (Mocked)', () => {
-  const email = 'bad_user@trade.com';
-  const password = 'WrongPassword!';
+async function login(page: Page, email: string, password: string) {
+  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
+  await page.locator('#auth-email').fill(email);
+  await page.locator('#auth-password').fill(password);
+  await page.getByRole('button', { name: 'Sign In' }).click();
+}
 
-  test.beforeEach(async ({ page }) => {
-    await page.route('**/api/auth/login*', async route => {
-      await route.fulfill({
-        status: 401,
-        body: JSON.stringify({ message: 'Login failed. Check credentials.' }),
-      });
-    });
-  });
-
+test.describe('Trade Platform UI - Auth Failures', () => {
   test('Shows error message when login fails', async ({ page }) => {
-    await page.goto('/');
+    const email = `bad_user_${Date.now()}@trade.com`;
 
+    await page.goto('/');
     await page.getByRole('button', { name: 'Sign In' }).waitFor();
 
-    await page.getByLabel('Email').fill(email);
-    await page.getByLabel('Password').fill(password);
+    await login(page, email, 'WrongPassword!');
 
-    await page.getByRole('button', { name: 'Sign In' }).click();
-
-    await expect(page.getByRole('alert')).toContainText('Login failed. Check credentials.');
+    await expect(page.getByRole('alert')).toContainText('Invalid email or password.');
     await expect(page.getByText(`Welcome, ${email}`)).not.toBeVisible();
   });
 });

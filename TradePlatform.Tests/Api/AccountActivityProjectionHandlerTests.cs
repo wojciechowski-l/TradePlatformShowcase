@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Logging;
 using Moq;
 using TradePlatform.Api.Handlers;
@@ -78,7 +79,8 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
             TransactionStatus.Processed,
             processedAt));
 
-        var rows = await context.AccountActivityProjections
+        await using var verificationContext = CreateContextForSameDatabase(context);
+        var rows = await verificationContext.AccountActivityProjections
             .Where(p => p.TransactionId == transactionId)
             .ToListAsync(TestContext.Current.CancellationToken);
 
@@ -171,7 +173,8 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
             TransactionStatus.Processed,
             duplicateProcessedAt));
 
-        var rows = await context.AccountActivityProjections
+        await using var verificationContext = CreateContextForSameDatabase(context);
+        var rows = await verificationContext.AccountActivityProjections
             .Where(p => p.TransactionId == transactionId)
             .ToListAsync(TestContext.Current.CancellationToken);
 
@@ -215,7 +218,8 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
             "USD",
             submittedAt));
 
-        var rows = await context.AccountActivityProjections
+        await using var verificationContext = CreateContextForSameDatabase(context);
+        var rows = await verificationContext.AccountActivityProjections
             .Where(p => p.TransactionId == transactionId)
             .ToListAsync(TestContext.Current.CancellationToken);
 
@@ -271,7 +275,75 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
             TransactionStatus.Processing,
             staleProcessingAt));
 
-        var rows = await context.AccountActivityProjections
+        await using var verificationContext = CreateContextForSameDatabase(context);
+        var rows = await verificationContext.AccountActivityProjections
+            .Where(p => p.TransactionId == transactionId)
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, row =>
+        {
+            Assert.Equal(TransactionStatus.Processed, row.Status);
+            Assert.Equal(processedAt, row.ProcessedAtUtc);
+            Assert.Equal(processedAt, row.LastEventUtc);
+        });
+    }
+
+    [Fact]
+    public async Task Handle_StatusChangedEvent_Should_Use_Fresh_Db_State_When_Context_Is_Stale()
+    {
+        await using var context = await _fixture.CreateContextAsync(TestContext.Current.CancellationToken);
+        var handler = CreateHandler(context);
+        var transactionId = Guid.NewGuid();
+        var submittedAt = DateTime.UtcNow.AddSeconds(-5);
+        var processedAt = DateTime.UtcNow;
+        var staleProcessingAt = processedAt.AddSeconds(1);
+        var sourceAccountId = $"ACC-SRC-{Guid.NewGuid():N}"[..18];
+        var targetAccountId = $"ACC-TGT-{Guid.NewGuid():N}"[..18];
+
+        await SeedAccountAsync(context, sourceAccountId);
+        await SeedAccountAsync(context, targetAccountId);
+
+        await handler.Handle(new TransactionSubmittedEvent(
+            transactionId,
+            sourceAccountId,
+            targetAccountId,
+            150m,
+            "USD",
+            submittedAt));
+
+        _ = await context.AccountActivityProjections
+            .Where(p => p.TransactionId == transactionId)
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        await using (var freshContext = CreateContextForSameDatabase(context))
+        {
+            var freshRows = await freshContext.AccountActivityProjections
+                .Where(p => p.TransactionId == transactionId)
+                .ToListAsync(TestContext.Current.CancellationToken);
+
+            foreach (var row in freshRows)
+            {
+                row.Status = TransactionStatus.Processed;
+                row.ProcessedAtUtc = processedAt;
+                row.LastEventUtc = processedAt;
+            }
+
+            await freshContext.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        await handler.Handle(new TransactionStatusChangedEvent(
+            transactionId,
+            sourceAccountId,
+            targetAccountId,
+            150m,
+            "USD",
+            TransactionStatus.Validated,
+            TransactionStatus.Processing,
+            staleProcessingAt));
+
+        await using var verificationContext = CreateContextForSameDatabase(context);
+        var rows = await verificationContext.AccountActivityProjections
             .Where(p => p.TransactionId == transactionId)
             .ToListAsync(TestContext.Current.CancellationToken);
 
@@ -330,8 +402,31 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
     private static AccountActivityProjectionHandler CreateHandler(TradeContext context)
     {
         return new AccountActivityProjectionHandler(
-            context,
+            new SameDatabaseContextFactory(context),
             Mock.Of<ILogger<AccountActivityProjectionHandler>>());
+    }
+
+    private static TradeContext CreateContextForSameDatabase(TradeContext existingContext)
+    {
+        var connectionString = existingContext.Database.GetConnectionString()
+            ?? throw new InvalidOperationException("Missing connection string for test context.");
+
+        var options = new DbContextOptionsBuilder<TradeContext>()
+            .UseSqlServer(connectionString)
+            .Options;
+
+        return new TradeContext(options);
+    }
+
+    private sealed class SameDatabaseContextFactory(TradeContext existingContext) : IDbContextFactory<TradeContext>
+    {
+        public TradeContext CreateDbContext() => CreateContextForSameDatabase(existingContext);
+
+        public async Task<TradeContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            return CreateDbContext();
+        }
     }
 
     private static async Task SeedAccountAsync(TradeContext context, string accountId)

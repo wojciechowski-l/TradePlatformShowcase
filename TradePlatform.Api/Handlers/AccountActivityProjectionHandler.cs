@@ -8,14 +8,17 @@ using TradePlatform.Infrastructure.Data;
 namespace TradePlatform.Api.Handlers;
 
 public partial class AccountActivityProjectionHandler(
-    TradeContext context,
+    IDbContextFactory<TradeContext> dbContextFactory,
     ILogger<AccountActivityProjectionHandler> logger)
     : IHandleMessages<TransactionSubmittedEvent>,
       IHandleMessages<TransactionStatusChangedEvent>
 {
     public async Task Handle(TransactionSubmittedEvent message)
     {
+        await using var context = await dbContextFactory.CreateDbContextAsync();
+
         await UpsertProjectionAsync(
+            context,
             message.TransactionId,
             message.SourceAccountId,
             message.TargetAccountId,
@@ -29,9 +32,10 @@ public partial class AccountActivityProjectionHandler(
             null,
             allowStatusRegression: false);
 
-        if (await AccountExistsAsync(message.TargetAccountId))
+        if (await AccountExistsAsync(context, message.TargetAccountId))
         {
             await UpsertProjectionAsync(
+                context,
                 message.TransactionId,
                 message.TargetAccountId,
                 message.SourceAccountId,
@@ -52,13 +56,15 @@ public partial class AccountActivityProjectionHandler(
 
     public async Task Handle(TransactionStatusChangedEvent message)
     {
-        var projections = await context.AccountActivityProjections
-            .Where(p => p.TransactionId == message.TransactionId)
-            .ToListAsync();
+        await using var context = await dbContextFactory.CreateDbContextAsync();
 
-        if (projections.Count == 0)
+        var hasExistingProjection = await context.AccountActivityProjections
+            .AnyAsync(p => p.TransactionId == message.TransactionId);
+
+        if (!hasExistingProjection)
         {
             await UpsertProjectionAsync(
+                context,
                 message.TransactionId,
                 message.SourceAccountId,
                 message.TargetAccountId,
@@ -72,9 +78,10 @@ public partial class AccountActivityProjectionHandler(
                 message.FailureReason,
                 allowStatusRegression: true);
 
-            if (await AccountExistsAsync(message.TargetAccountId))
+            if (await AccountExistsAsync(context, message.TargetAccountId))
             {
                 await UpsertProjectionAsync(
+                    context,
                     message.TransactionId,
                     message.TargetAccountId,
                     message.SourceAccountId,
@@ -94,47 +101,24 @@ public partial class AccountActivityProjectionHandler(
             return;
         }
 
-        if (projections.All(p =>
-            p.Status == message.CurrentStatus &&
-            (p.Status is TransactionStatus.Processed or TransactionStatus.Failed
-                ? p.ProcessedAtUtc.HasValue
-                : p.LastEventUtc >= message.ChangedAtUtc)))
+        var changed = await BuildUpdatableProjectionQuery(context, message)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(p => p.Status, message.CurrentStatus)
+                .SetProperty(p => p.ProcessedAtUtc, GetCompletedAtUtc(message.CurrentStatus, message.ChangedAtUtc))
+                .SetProperty(p => p.LastEventUtc, message.ChangedAtUtc)
+                .SetProperty(p => p.FailureReason, message.FailureReason));
+
+        if (changed == 0)
         {
             LogDuplicateStatusUpdate(logger, message.TransactionId, message.CurrentStatus);
             return;
         }
 
-        foreach (var projection in projections)
-        {
-            if (GetStatusOrder(message.CurrentStatus) < GetStatusOrder(projection.Status))
-            {
-                continue;
-            }
-
-            if (projection.Status == message.CurrentStatus &&
-                projection.Status is TransactionStatus.Processed or TransactionStatus.Failed &&
-                projection.ProcessedAtUtc.HasValue)
-            {
-                continue;
-            }
-
-            if (projection.LastEventUtc > message.ChangedAtUtc &&
-                GetStatusOrder(message.CurrentStatus) == GetStatusOrder(projection.Status))
-            {
-                continue;
-            }
-
-            projection.Status = message.CurrentStatus;
-            projection.ProcessedAtUtc = GetCompletedAtUtc(message.CurrentStatus, message.ChangedAtUtc);
-            projection.LastEventUtc = message.ChangedAtUtc;
-            projection.FailureReason = message.FailureReason;
-        }
-
-        await context.SaveChangesAsync();
         LogProjectionUpdated(logger, message.TransactionId, message.CurrentStatus);
     }
 
     private async Task UpsertProjectionAsync(
+        TradeContext context,
         Guid transactionId,
         string accountId,
         string counterpartyAccountId,
@@ -210,7 +194,35 @@ public partial class AccountActivityProjectionHandler(
             : null;
     }
 
-    private Task<bool> AccountExistsAsync(string accountId)
+    private static IQueryable<AccountActivityProjection> BuildUpdatableProjectionQuery(
+        TradeContext context,
+        TransactionStatusChangedEvent message)
+    {
+        var query = context.AccountActivityProjections
+            .Where(p => p.TransactionId == message.TransactionId);
+
+        return message.CurrentStatus switch
+        {
+            TransactionStatus.Validated => query.Where(p =>
+                p.Status == TransactionStatus.Pending ||
+                (p.Status == TransactionStatus.Validated && p.LastEventUtc <= message.ChangedAtUtc)),
+
+            TransactionStatus.Processing => query.Where(p =>
+                p.Status == TransactionStatus.Pending ||
+                p.Status == TransactionStatus.Validated ||
+                (p.Status == TransactionStatus.Processing && p.LastEventUtc <= message.ChangedAtUtc)),
+
+            TransactionStatus.Processed or TransactionStatus.Failed => query.Where(p =>
+                p.Status == TransactionStatus.Pending ||
+                p.Status == TransactionStatus.Validated ||
+                p.Status == TransactionStatus.Processing),
+
+            _ => query.Where(p =>
+                p.Status == TransactionStatus.Pending && p.LastEventUtc <= message.ChangedAtUtc)
+        };
+    }
+
+    private static Task<bool> AccountExistsAsync(TradeContext context, string accountId)
     {
         return context.Accounts
             .AsNoTracking()
