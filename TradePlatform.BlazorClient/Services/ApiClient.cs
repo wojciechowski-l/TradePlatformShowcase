@@ -6,7 +6,7 @@ using TradePlatform.BlazorClient.Models;
 
 namespace TradePlatform.BlazorClient.Services;
 
-public sealed class ApiClient(HttpClient httpClient)
+public sealed class ApiClient(HttpClient httpClient, IAuthTokenAccessor authTokenAccessor)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -31,9 +31,9 @@ public sealed class ApiClient(HttpClient httpClient)
         }
     }
 
-    public async Task<AccountDto?> GetMyAccountAsync(string token, CancellationToken cancellationToken = default)
+    public async Task<AccountDto?> GetMyAccountAsync(CancellationToken cancellationToken = default)
     {
-        using var request = CreateAuthorizedRequest(HttpMethod.Get, "api/accounts/my-account", token);
+        using var request = CreateAuthorizedRequest(HttpMethod.Get, "api/accounts/my-account");
         using var response = await httpClient.SendAsync(request, cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.NotFound)
@@ -49,9 +49,9 @@ public sealed class ApiClient(HttpClient httpClient)
         return await response.Content.ReadFromJsonAsync<AccountDto>(JsonOptions, cancellationToken);
     }
 
-    public async Task<AccountDto> ProvisionAccountAsync(string token, CancellationToken cancellationToken = default)
+    public async Task<AccountDto> ProvisionAccountAsync(CancellationToken cancellationToken = default)
     {
-        using var request = CreateAuthorizedRequest(HttpMethod.Post, "api/accounts/provision", token);
+        using var request = CreateAuthorizedRequest(HttpMethod.Post, "api/accounts/provision");
         using var response = await httpClient.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
@@ -62,9 +62,9 @@ public sealed class ApiClient(HttpClient httpClient)
             ?? throw new InvalidOperationException("Provisioning succeeded but no account was returned.");
     }
 
-    public async Task<IReadOnlyList<AccountActivityDto>> GetMyAccountActivityAsync(string token, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<AccountActivityDto>> GetMyAccountActivityAsync(CancellationToken cancellationToken = default)
     {
-        using var request = CreateAuthorizedRequest(HttpMethod.Get, "api/accounts/my-account/activity", token);
+        using var request = CreateAuthorizedRequest(HttpMethod.Get, "api/accounts/my-account/activity");
         using var response = await httpClient.SendAsync(request, cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.NotFound)
@@ -82,11 +82,10 @@ public sealed class ApiClient(HttpClient httpClient)
 
     public async Task<TransactionResponse> SubmitTransactionAsync(
         TransactionRequest request,
-        string token,
         string idempotencyKey,
         CancellationToken cancellationToken = default)
     {
-        using var message = CreateAuthorizedRequest(HttpMethod.Post, "api/transactions", token);
+        using var message = CreateAuthorizedRequest(HttpMethod.Post, "api/transactions");
         message.Headers.Add("Idempotency-Key", idempotencyKey);
         message.Content = JsonContent.Create(request);
 
@@ -116,8 +115,14 @@ public sealed class ApiClient(HttpClient httpClient)
             ?? throw new InvalidOperationException("Transaction submission succeeded but no payload was returned.");
     }
 
-    private static HttpRequestMessage CreateAuthorizedRequest(HttpMethod method, string uri, string token)
+    private HttpRequestMessage CreateAuthorizedRequest(HttpMethod method, string uri)
     {
+        var token = authTokenAccessor.CurrentToken;
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            throw new InvalidOperationException("Unauthorized: session expired.");
+        }
+
         var request = new HttpRequestMessage(method, uri);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return request;
@@ -146,7 +151,7 @@ public sealed class ApiClient(HttpClient httpClient)
                     return problem.Title;
                 }
             }
-            
+
             var messageEnvelope = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(content, JsonOptions);
             if (messageEnvelope is not null && messageEnvelope.TryGetValue("message", out var messageElement))
             {
