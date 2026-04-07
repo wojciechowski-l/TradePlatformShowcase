@@ -99,47 +99,51 @@ Redis is shared.
 
 ---
 
-## ADR-005 — Two-step ownership check (JWT claim → DB with cache)
+## ADR-005 — Two-step ownership check (principal claim → DB with cache)
 
 **Status:** Implemented
 **Files:** `TradePlatform.Infrastructure/Services/DbAccountOwnershipService.cs`,
 `TradePlatform.Api/Infrastructure/TradeUserClaimsPrincipalFactory.cs`
 
 **Decision:** `DbAccountOwnershipService.IsOwnerAsync` first compares the
-`urn:tradeplatform:accountid` JWT claim to the requested account ID. On a miss, it falls
+`urn:tradeplatform:accountid` principal claim to the requested account ID. On a miss, it falls
 back to a database query. Positive DB results are cached in `IMemoryCache` for 30 seconds.
 Negative results are never cached.
 
 **Reasoning:** The ownership check is on the hot path for every trade submission and every
-SignalR group join. A pure DB query per request does not scale. The JWT claim handles the
+SignalR group join. A pure DB query per request does not scale. The principal claim handles the
 common case at zero cost. The 30-second cache absorbs reconnect storms after a service
 restart without requiring distributed cache coordination. Negative results are not cached
 to prevent a transient denial from persisting across a subsequent legitimate ownership
 grant.
 
-**Trade-off:** The claim is embedded at login time. If account ownership changes between
-token issuance and expiry, the claim will be stale until the next login. The cache is
+**Trade-off:** The claim is embedded at sign-in time. If account ownership changes between
+session issuance and expiry, the claim will be stale until the next login. The cache is
 process-local; under horizontal API scale, each replica caches independently, creating
 bounded per-replica inconsistency windows within the TTL.
 
 ---
 
-## ADR-006 — ASP.NET Identity API endpoints for authentication
+## ADR-006 — ASP.NET Core Identity cookies with custom form endpoints
 
 **Status:** Implemented
-**Files:** `TradePlatform.Api/Program.cs` (`MapIdentityApi<ApplicationUser>()`)
+**Files:** `TradePlatform.Api/Program.cs`,
+`TradePlatform.Api/Endpoints/AuthEndpoints.cs`,
+`TradePlatform.Api/Infrastructure/TradeUserClaimsPrincipalFactory.cs`
 
-**Decision:** Use the built-in `AddIdentityApiEndpoints` + `MapIdentityApi` to expose
-registration and login endpoints, rather than building custom auth controllers.
+**Decision:** Use ASP.NET Core Identity with the application cookie scheme and small
+custom form-post endpoints for login, registration, and logout, rather than exposing a
+browser-facing token API.
 
-**Reasoning:** Authentication implementation is not a differentiating concern of this
-project. Identity API endpoints provide a complete, standards-conformant JWT-issuing
-surface with minimal code, leaving focus on the messaging, reliability, and ownership
-patterns that are the project's actual scope.
+**Reasoning:** The browser now runs against a single-origin Blazor Web App hosted by the
+API. Cookie auth fits that topology better than browser-managed JWT plumbing: the forms
+post directly to same-origin endpoints, the browser automatically carries the session for
+HTML, REST, and SignalR requests, and the UI no longer needs client token storage or
+refresh logic.
 
-**Trade-off:** The endpoint contract is dictated by ASP.NET Identity and is not
-customisable beyond the claims factory extension point (`TradeUserClaimsPrincipalFactory`).
-Accepted for this project's scope.
+**Trade-off:** The auth flow is browser-session oriented rather than API-token oriented,
+which is ideal for this showcase UI but less reusable for third-party API consumers.
+Accepted because the repo's primary interactive experience is now the hosted Blazor app.
 
 ---
 
@@ -284,7 +288,7 @@ standard EF Core configuration and adds no meaningful complexity.
 `TradePlatform.Infrastructure/Services/TransactionService.cs`,
 `TradePlatform.Core/Entities/IdempotencyKey.cs`,
 `TradePlatform.Infrastructure/Data/TradeContext.cs`,
-`TradePlatform.BlazorClient/Services/ApiClient.cs`, `TradePlatform.BlazorClient/Components/TradeShowcase.razor`
+`TradePlatform.Api/Components/Pages/Home.razor`
 
 **Decision:** `POST /api/transactions` accepts an optional `Idempotency-Key` header
 (UUID). The key is stored in the `IdempotencyKeys` table, scoped per user, with a 24-hour
@@ -331,28 +335,30 @@ the deduplication window.
 
 ---
 
-## ADR-014 — Standardize on a Blazor WebAssembly client
+## ADR-014 — Standardize on a server-hosted Blazor Web App
 
 **Status:** Implemented
-**Files:** `TradePlatform.BlazorClient/Program.cs`,
-`TradePlatform.BlazorClient/Components/TradeShowcase.razor`,
-`TradePlatform.BlazorClient/Services/ApiClient.cs`,
-`TradePlatform.BlazorClient/Services/TradeSignalRService.cs`,
-`TradePlatform.BlazorClient/Dockerfile`,
-`TradePlatform.BlazorClient/nginx.conf`,
+**Files:** `TradePlatform.Api/Components/App.razor`,
+`TradePlatform.Api/Components/Routes.razor`,
+`TradePlatform.Api/Components/Layout/MainLayout.razor`,
+`TradePlatform.Api/Components/Pages/Home.razor`,
+`TradePlatform.Api/Endpoints/AuthEndpoints.cs`,
+`TradePlatform.Api/Program.cs`,
 `docker-compose.yml`,
 `docker-compose.test.yml`
 
-**Decision:** Use a Blazor WebAssembly client, served by nginx, as the sole frontend
-implementation. Browser E2E tests were moved into a standalone `E2E` workspace so the
-test harness does not depend on the frontend project itself.
+**Decision:** Use a single server-hosted Blazor Web App inside `TradePlatform.Api` as the
+sole interactive frontend implementation. Browser E2E tests remain in the standalone
+`E2E` workspace so the test harness does not depend on a separate UI project.
 
-**Reasoning:** The showcase now carries a single frontend implementation. nginx serves
-the published Blazor assets and proxies `/api` and `/hubs`, which preserves a simple
-single-origin browser model while keeping the API and SignalR topology unchanged.
+**Reasoning:** The showcase now carries a single frontend implementation with same-origin
+cookie auth and direct access to server-side services. This removes the extra WebAssembly
+runtime, client token plumbing, and separate frontend deployment path while preserving the
+same browser-visible transaction flow used by the E2E suite.
 
-**Trade-off:** Blazor adds WebAssembly runtime assets and a .NET client runtime. In
-exchange, the repo no longer has feature-parity drift between two frontends.
+**Trade-off:** UI rendering now depends on the API host rather than a separately deployable
+browser runtime. In exchange, the repo no longer has feature-parity drift or duplicated
+frontend infrastructure.
 
 ---
 

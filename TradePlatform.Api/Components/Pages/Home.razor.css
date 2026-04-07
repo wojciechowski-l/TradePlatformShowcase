@@ -253,8 +253,17 @@ label {
 }
 
 .field-error,
+.validation-message,
 .danger-text {
     color: var(--danger);
+}
+
+.validation-summary {
+    margin-bottom: 0;
+}
+
+.input-validation-error {
+    border-color: rgba(255, 107, 135, 0.45);
 }
 
 @media (max-width: 900px) {

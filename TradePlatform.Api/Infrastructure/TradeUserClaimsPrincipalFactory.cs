@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.Security.Claims;
+using TradePlatform.Core.Constants;
 using TradePlatform.Core.Entities;
 using TradePlatform.Infrastructure.Data;
 
@@ -23,7 +24,7 @@ namespace TradePlatform.Api.Infrastructure
 
             if (account != null)
             {
-                identity.AddClaim(new Claim("urn:tradeplatform:accountid", account.Id));
+                identity.AddClaim(new Claim(TradeClaimTypes.AccountId, account.Id));
             }
 
             return identity;

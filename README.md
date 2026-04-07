@@ -20,7 +20,7 @@ It exists to demonstrate:
 ## Architecture Documentation
 
 - Architecture.md — runtime topology, request lifecycle, identity model, scaling
-- Decisions.md — architecture decision records (ADR-001 through ADR-012)
+- Decisions.md — architecture decision records (ADR-001 through ADR-015)
 - FailureModes.md — failure analysis, recovery behaviour, known gaps
 
 ---
@@ -33,7 +33,7 @@ If you are reviewing this repository, the most significant architectural pattern
   The core of the reliability story. Implements the Outbox pattern by binding a Rebus `RebusTransactionScope` to the same ADO.NET transaction as the EF Core `SaveChangesAsync` call. A message is only published if the database commit succeeds — there is no window where a record is written but no message is sent, or a message is sent for a transaction that was rolled back.
 
 - **`TradePlatform.Api/Hubs/TradeHub.cs`** and **`TradePlatform.Infrastructure/Services/DbAccountOwnershipService.cs`**
-  Together these implement the ownership model. `TradeHub` validates that a SignalR client can only join the group for an account they own. `DbAccountOwnershipService` first checks a custom JWT claim (zero-cost fast path), then falls back to a database query with a short-lived memory cache to absorb reconnect bursts.
+  Together these implement the ownership model. `TradeHub` validates that a SignalR client can only join the group for an account they own. `DbAccountOwnershipService` first checks a custom authenticated-user claim (zero-cost fast path), then falls back to a database query with a short-lived memory cache to absorb reconnect bursts.
 
 - **`TradePlatform.Api/Controllers/TransactionsController.cs`**
   The HTTP write boundary. Enforces account ownership before dispatching to the service layer — the authenticated user's identity is validated against the `SourceAccountId` in the request body, preventing IDOR.
@@ -89,12 +89,12 @@ The system prevents any authenticated user from acting on accounts they do not o
 - **SignalR group join** (`TradeHub`): `IsOwnerAsync` is called before adding a connection to an account's notification group. Throws `HubException` if the check fails.
 
 `DbAccountOwnershipService` resolves ownership in two steps:
-1. Checks the `urn:tradeplatform:accountid` claim embedded in the JWT at login time by `TradeUserClaimsPrincipalFactory` — zero DB cost for the common case.
+1. Checks the `urn:tradeplatform:accountid` claim added to the signed-in principal by `TradeUserClaimsPrincipalFactory` — zero DB cost for the common case.
 2. Falls back to a database query (with a 30-second `IMemoryCache` TTL) when the claim is absent or does not match — protects against thundering-herd reconnects after a service restart.
 
 ### 4. Scalable Real-Time Notifications (SignalR + Redis)
 
-The Worker publishes `TransactionStatusChangedEvent` messages for each lifecycle transition. The API subscribes to these events and pushes a `ReceiveStatusUpdate` message to the relevant SignalR group.
+The Worker publishes `TransactionStatusChangedEvent` messages for each lifecycle transition. The API subscribes to these events and pushes a `ReceiveStatusUpdate` message to the relevant SignalR group for clients that use `TradeHub`.
 
 - **Redis Backplane**: Ensures SignalR messages reach the correct client regardless of which API replica they are connected to, enabling horizontal scaling of the API layer.
 - **Event-Driven**: The Worker has no direct dependency on the API's internal topology — it only publishes an event.
@@ -113,7 +113,7 @@ A complete three-pillar observability stack:
 
 ### 7. CQRS-lite Read Model
 
-The API subscribes to `TransactionSubmittedEvent` and `TransactionStatusChangedEvent` and projects them into a dedicated `AccountActivityProjections` table. The frontend reads this table via `GET /api/accounts/my-account/activity`, which makes eventual consistency visible: a transaction is accepted first, then appears in the feed as the projection catches up, then transitions through `Validated` / `Processing` to its terminal status.
+The API subscribes to `TransactionSubmittedEvent` and `TransactionStatusChangedEvent` and projects them into a dedicated `AccountActivityProjections` table. The hosted Blazor UI reads this projection server-side, which makes eventual consistency visible: a transaction is accepted first, then appears in the feed as the projection catches up, then transitions through `Validated` / `Processing` to its terminal status.
 
 - **Projection idempotency**: repeated terminal deliveries are ignored once the projection is already in a terminal state, and lower-order lifecycle events are prevented from regressing the read model.
 - **Projection integrity**: incoming rows are only created when the target account exists, so a failed transfer to a missing target does not fabricate inbound activity for a non-existent account.
@@ -130,11 +130,10 @@ The API subscribes to `TransactionSubmittedEvent` and `TransactionStatusChangedE
 
 ## Architecture
 
-The solution is a distributed system composed of two .NET 10 services, a Blazor WebAssembly frontend, and supporting infrastructure, orchestrated via Docker Compose:
+The solution is a distributed system composed of two .NET 10 services, a server-hosted Blazor Web App, and supporting infrastructure, orchestrated via Docker Compose:
 
-- **TradePlatform.Api** — REST API and SignalR hub. Validates requests, enforces ownership, and dispatches commands via the Rebus Outbox.
+- **TradePlatform.Api** — REST API, SignalR hub, and hosted Blazor UI. Validates requests, enforces ownership, and dispatches commands via the Rebus Outbox.
 - **TradePlatform.Worker** — Background host. Consumes messages from the `trade-orders` queue, processes transactions, and publishes status events.
-- **TradePlatform.BlazorClient** — Blazor WebAssembly frontend hosted by `TradePlatform.Api` as static web assets.
 - **E2E** — Standalone Playwright workspace for browser tests, decoupled from the frontend implementation.
 - **Infrastructure** — SQL Server 2022, RabbitMQ, Redis, Prometheus, Grafana, Seq.
 
@@ -152,7 +151,7 @@ Located in `TradePlatform.Tests`.
 
 **Scope:**
 - Unit tests cover `TransactionService`, `TransactionCreatedHandler`, and `TransactionDtoValidator` in isolation using mocks for infrastructure dependencies.
-- Integration tests run against real, ephemeral SQL Server and RabbitMQ containers. Authentication is replaced with a `TestAuthHandler` that injects per-request identity via HTTP headers, replicating the claims structure of the real JWT — the ownership checks, validator, and full Rebus pipeline run unmodified.
+- Integration tests run against real, ephemeral SQL Server and RabbitMQ containers. Authentication is replaced with a `TestAuthHandler` that injects per-request identity via HTTP headers, replicating the claims structure of the real authenticated principal — the ownership checks, validator, and full Rebus pipeline run unmodified.
 
 ### 2. End-to-End (E2E) Tests
 
@@ -208,7 +207,7 @@ docker compose up -d --build
 | Layer | Technology |
 |---|---|
 | Backend | .NET 10, C#, Entity Framework Core 10 |
-| Frontend | Blazor WebAssembly |
+| Frontend | Blazor Web App |
 | Messaging | Rebus 8 over RabbitMQ |
 | Database | SQL Server 2022 |
 | Real-time | ASP.NET Core SignalR with Redis backplane |

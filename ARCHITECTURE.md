@@ -25,8 +25,6 @@ TradePlatform.Worker         — .NET Worker host: Rebus consumer, transaction p
 
 TradePlatform.Tests          — xUnit unit + integration tests. Testcontainers-backed.
 
-TradePlatform.BlazorClient   — Blazor WebAssembly SPA.
-
 E2E                          — Playwright workspace and browser test runner.
 ```
 
@@ -46,9 +44,9 @@ Api  ──► Infrastructure ──► Core ◄── Worker ──► Infrastr
 
 ```
 Browser
-  │  HTTP (REST)           Bearer JWT
+  │  HTTP (same-origin, auth cookie)
   ├────────────────────► TradePlatform.Api (:8080)
-  │  WebSocket (SignalR)   Bearer JWT
+  │  WebSocket (SignalR, same-origin auth)
   └────────────────────► TradePlatform.Api (:8080)
                                   │
                      ┌────────────┴──────────────┐
@@ -86,19 +84,21 @@ Browser
 | grafana    | grafana/grafana                  | 3100                 | Dashboard visualisation               |
 | seq        | datalust/seq                     | 5341                 | Structured log aggregation            |
 | migrator   | Api image (`--migrate-only`)     | —                    | One-shot EF Core migration runner     |
-| api        | ASP.NET Core host + Blazor assets| 3000, 8080           | REST API, SignalR hub, hosted WASM UI |
+| api        | ASP.NET Core host + Blazor UI    | 3000, 8080           | REST API, SignalR hub, server-hosted Blazor Web App |
 
 ---
 
 ## Request Lifecycle — Trade Submission
 
 **1. Authentication**
-Client calls `POST /api/auth/login` (ASP.NET Identity endpoint). The JWT issued contains
-the custom claim `urn:tradeplatform:accountid`, injected at token generation by
-`TradeUserClaimsPrincipalFactory`.
+Client submits the same-origin Blazor login form to `POST /auth/login`. ASP.NET Core
+Identity signs the browser into the application cookie scheme. During principal creation,
+`TradeUserClaimsPrincipalFactory` adds the custom `urn:tradeplatform:accountid` claim when
+the user already owns an account.
 
 **2. HTTP write — `POST /api/transactions`**
-Bearer token attached. `[Authorize]` gate validates the JWT. `TransactionsController`
+Browser request carries the application auth cookie. `[Authorize]` gate validates the
+session principal. `TransactionsController`
 calls `IAccountOwnershipService.IsOwnerAsync` against `SourceAccountId`. Returns `403`
 if the caller does not own the account. If an `Idempotency-Key` header is present, the
 key is passed through to `TransactionService`; deduplication occurs inside the
@@ -154,20 +154,19 @@ The Redis backplane (channel prefix `TradePlatform`) ensures the group message r
 the correct API replica regardless of which replica holds the client's WebSocket.
 
 **7. Client**
-Receives `ReceiveStatusUpdate` on the SignalR connection and updates the UI. The dashboard
-also polls the account-activity projection until a terminal status is observed, with a
-fallback window, so a missed real-time push or a slow cold-start path does not leave the
-user stuck on an intermediate state. The Blazor app is published as static web assets and
-served directly by the ASP.NET Core API host, so the browser uses a single origin for the
-frontend, REST API, and SignalR hub.
+The hosted Blazor UI polls the account-activity projection until a terminal status is
+observed, so a slow cold-start path does not leave the user stuck on an intermediate
+state. `TradeHub` remains available for SignalR clients that want direct status pushes.
+The Blazor UI is served directly by the ASP.NET Core API host, so the browser uses a
+single origin for the frontend, REST API, and SignalR endpoints.
 
 ---
 
 ## Identity and Ownership Model
 
-**Identity origin:** ASP.NET Core Identity. JWT issued at login by
-`TradeUserClaimsPrincipalFactory`, which embeds the user's first account ID as the custom
-claim `urn:tradeplatform:accountid`.
+**Identity origin:** ASP.NET Core Identity with same-origin application cookies.
+`TradeUserClaimsPrincipalFactory` enriches the signed-in principal with the custom claim
+`urn:tradeplatform:accountid` when the user already owns an account.
 
 **Ownership resolution — `DbAccountOwnershipService`:**
 

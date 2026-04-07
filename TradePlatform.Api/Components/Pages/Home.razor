@@ -1,5 +1,6 @@
 @page "/"
 @implements IDisposable
+@using System.ComponentModel.DataAnnotations
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IDbContextFactory<TradeContext> DbContextFactory
 @inject IValidator<TransactionDto> TransactionValidator
@@ -35,11 +36,11 @@
 
                         <div>
                             <label for="auth-email">Email</label>
-                            <input id="auth-email" class="input" name="email" type="email" autocomplete="username" />
+                            <input id="auth-email" class="input" name="email" type="email" autocomplete="username" required />
                         </div>
                         <div>
                             <label for="auth-password">Password</label>
-                            <input id="auth-password" class="input" name="password" type="password" autocomplete="current-password" />
+                            <input id="auth-password" class="input" name="password" type="password" autocomplete="current-password" required />
                         </div>
 
                         <button class="primary-button" type="submit">Sign In</button>
@@ -53,11 +54,11 @@
 
                         <div>
                             <label for="register-email">Email</label>
-                            <input id="register-email" class="input" name="email" type="email" autocomplete="username" />
+                            <input id="register-email" class="input" name="email" type="email" autocomplete="username" required />
                         </div>
                         <div>
                             <label for="register-password">Password</label>
-                            <input id="register-password" class="input" name="password" type="password" autocomplete="new-password" />
+                            <input id="register-password" class="input" name="password" type="password" autocomplete="new-password" required minlength="6" />
                         </div>
 
                         <button class="primary-button" type="submit">Register</button>
@@ -119,25 +120,31 @@
                     }
 
                     <EditForm Model="transactionModel" OnValidSubmit="HandleTransactionSubmitAsync" class="form-stack">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary class="message danger validation-summary" />
                         <div class="form-grid">
                             <div>
                                 <label for="source-account">Source Account</label>
                                 <InputText id="source-account" class="input" @bind-Value="transactionModel.SourceAccountId" />
+                                <ValidationMessage For="@(() => transactionModel.SourceAccountId)" />
                                 @RenderFieldError(nameof(TransactionDto.SourceAccountId))
                             </div>
                             <div>
                                 <label for="target-account">Target Account</label>
                                 <InputText id="target-account" class="input" @bind-Value="transactionModel.TargetAccountId" />
+                                <ValidationMessage For="@(() => transactionModel.TargetAccountId)" />
                                 @RenderFieldError(nameof(TransactionDto.TargetAccountId))
                             </div>
                             <div>
                                 <label for="transaction-amount">Amount</label>
                                 <InputNumber id="transaction-amount" class="input" @bind-Value="transactionModel.Amount" />
+                                <ValidationMessage For="@(() => transactionModel.Amount)" />
                                 @RenderFieldError(nameof(TransactionDto.Amount))
                             </div>
                             <div>
                                 <label for="transaction-currency">Currency</label>
                                 <InputText id="transaction-currency" class="input" @bind-Value="transactionModel.Currency" />
+                                <ValidationMessage For="@(() => transactionModel.Currency)" />
                                 @RenderFieldError(nameof(TransactionDto.Currency))
                             </div>
                         </div>
@@ -532,9 +539,17 @@
 
     private sealed class TradeTransactionModel
     {
+        [Required(ErrorMessage = "Source account is required.")]
         public string SourceAccountId { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Target account is required.")]
         public string TargetAccountId { get; set; } = string.Empty;
+
+        [Range(typeof(decimal), "0.01", "79228162514264337593543950335", ErrorMessage = "Amount must be greater than zero.")]
         public decimal Amount { get; set; }
+
+        [Required(ErrorMessage = "Currency is required.")]
+        [RegularExpression("^[A-Za-z]{3}$", ErrorMessage = "Currency must be a 3-letter code.")]
         public string Currency { get; set; } = string.Empty;
     }
 }
