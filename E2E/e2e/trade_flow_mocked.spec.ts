@@ -20,7 +20,7 @@ async function login(page: Page, email: string, password: string) {
 }
 
 test.describe('Trade Platform UI', () => {
-  test('Registers, logs in, and provisions an account', async ({ page }) => {
+  test('Registers, logs in, and provisions an account', async ({ page }: { page: Page }) => {
     const email = `playwright_smoke_${Date.now()}@trade.com`;
     const password = 'Password123!';
 

@@ -75,7 +75,7 @@ test.describe('Trade Platform E2E Flow', () => {
       .poll(
         async () => {
           const statuses = await page.getByRole('status').allTextContents();
-          const transactionStatus = statuses.find((status) =>
+          const transactionStatus = statuses.find((status: string) =>
             status.includes(`Transaction ${transactionId} is now `)
           );
 
