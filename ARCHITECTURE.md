@@ -86,7 +86,7 @@ Browser
 | grafana    | grafana/grafana                  | 3100                 | Dashboard visualisation               |
 | seq        | datalust/seq                     | 5341                 | Structured log aggregation            |
 | migrator   | Api image (`--migrate-only`)     | —                    | One-shot EF Core migration runner     |
-| client     | Nginx-served Blazor publish      | 3000                 | Blazor WebAssembly SPA                |
+| api        | ASP.NET Core host + Blazor assets| 3000, 8080           | REST API, SignalR hub, hosted WASM UI |
 
 ---
 
@@ -156,10 +156,10 @@ the correct API replica regardless of which replica holds the client's WebSocket
 **7. Client**
 Receives `ReceiveStatusUpdate` on the SignalR connection and updates the UI. The dashboard
 also polls the account-activity projection until a terminal status is observed, with a
-60-second fallback window, so a missed real-time push or a slow cold-start path does not
-leave the user stuck on an intermediate state. The Blazor app is published as static
-assets and served by nginx, which proxies `/api/*` and `/hubs/*` back to the API so the
-browser uses a single frontend origin.
+fallback window, so a missed real-time push or a slow cold-start path does not leave the
+user stuck on an intermediate state. The Blazor app is published as static web assets and
+served directly by the ASP.NET Core API host, so the browser uses a single origin for the
+frontend, REST API, and SignalR hub.
 
 ---
 

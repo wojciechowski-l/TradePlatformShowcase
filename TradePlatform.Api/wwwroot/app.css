@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+    color-scheme: dark;
+    --bg: #07111d;
+    --bg-accent: #0d1b2d;
+    --panel: rgba(9, 18, 31, 0.84);
+    --line: rgba(171, 187, 210, 0.18);
+    --line-strong: rgba(95, 220, 255, 0.26);
+    --text: #f5f7fb;
+    --muted: #95a3ba;
+    --info: #4dd2ff;
+    --success: #4ae2a1;
+    --warning: #f8c15c;
+    --danger: #ff6b87;
+}
+
+html,
+body {
+    margin: 0;
+    min-height: 100%;
+    font-family: "Outfit", sans-serif;
+    color: var(--text);
+    background:
+        radial-gradient(circle at top left, rgba(77, 210, 255, 0.16), transparent 28%),
+        radial-gradient(circle at top right, rgba(74, 226, 161, 0.14), transparent 24%),
+        linear-gradient(160deg, var(--bg) 0%, var(--bg-accent) 42%, #040a13 100%);
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+        linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    background-size: 34px 34px;
+    mask-image: radial-gradient(circle at center, black 48%, transparent 88%);
+}
+
+a {
+    color: #90ebff;
+}
+
+button,
+input {
+    font: inherit;
+}
+
+h1:focus {
+    outline: none;
+}
+
+.empty-state {
+    padding: 2rem;
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    background: var(--panel);
+}

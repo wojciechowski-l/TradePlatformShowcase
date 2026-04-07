@@ -1,0 +1,42 @@
+.shell {
+    min-height: 100vh;
+    padding: 2rem 1.25rem 3rem;
+}
+
+.topbar {
+    max-width: 1100px;
+    margin: 0 auto 2rem;
+    padding: 1rem 1.25rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    border: 1px solid rgba(186, 196, 213, 0.22);
+    border-radius: 24px;
+    background: rgba(7, 15, 25, 0.72);
+    backdrop-filter: blur(16px);
+    box-shadow: 0 20px 60px rgba(5, 8, 15, 0.28);
+}
+
+.brand {
+    color: #f5f7fb;
+    text-decoration: none;
+    font-size: 1.15rem;
+    font-weight: 700;
+}
+
+.content-panel {
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+@media (max-width: 720px) {
+    .shell {
+        padding-top: 1rem;
+    }
+
+    .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}

@@ -1,4 +1,6 @@
-﻿using FluentValidation;
+using FluentValidation;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
@@ -12,6 +14,8 @@ using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Events;
 using SharpGrip.FluentValidation.AutoValidation.Mvc.Extensions;
+using TradePlatform.Api.Components;
+using TradePlatform.Api.Endpoints;
 using TradePlatform.Api.Handlers;
 using TradePlatform.Api.Hubs;
 using TradePlatform.Api.Infrastructure;
@@ -41,74 +45,85 @@ builder.Host.UseSerilog((context, services, configuration) =>
 });
 
 builder.Services.AddControllers();
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
+builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks();
 builder.Services.AddMemoryCache();
+builder.Services.AddHttpContextAccessor();
 
 var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
 
 builder.Services.AddSignalR()
-.AddStackExchangeRedis(redisConnectionString, options => {
-    options.Configuration.ChannelPrefix = StackExchange.Redis.RedisChannel.Literal("TradePlatform");
-});
+    .AddStackExchangeRedis(redisConnectionString, options =>
+    {
+        options.Configuration.ChannelPrefix = StackExchange.Redis.RedisChannel.Literal("TradePlatform");
+    });
 
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 builder.Services.AddFluentValidationAutoValidation();
 
 builder.Services.AddOpenTelemetry()
-.WithMetrics(metrics => metrics
-.AddAspNetCoreInstrumentation()
-.AddRuntimeInstrumentation()
-.AddMeter("TradePlatform.Transactions")
-.AddPrometheusExporter())
-.WithTracing(tracing => tracing
-.AddAspNetCoreInstrumentation()
-.AddRebusInstrumentation()
-.AddSource("Rebus"));
+    .WithMetrics(metrics => metrics
+        .AddAspNetCoreInstrumentation()
+        .AddRuntimeInstrumentation()
+        .AddMeter("TradePlatform.Transactions")
+        .AddPrometheusExporter())
+    .WithTracing(tracing => tracing
+        .AddAspNetCoreInstrumentation()
+        .AddRebusInstrumentation()
+        .AddSource("Rebus"));
 
 builder.Services.AddScoped<IAccountOwnershipService, DbAccountOwnershipService>();
 builder.Services.AddScoped<IAccountActivityProjectionRebuilder, AccountActivityProjectionRebuilder>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
 builder.Services.AddScoped<ITransactionScopeManager, RebusSqlTransactionScopeManager>();
 
-builder.Services.AddIdentityApiEndpoints<ApplicationUser>()
-.AddEntityFrameworkStores<TradeContext>()
-.AddClaimsPrincipalFactory<TradeUserClaimsPrincipalFactory>();
-
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 
 builder.Services.AddDbContext<TradeContext>(options =>
-options.UseSqlServer(connectionString));
+    options.UseSqlServer(connectionString));
+builder.Services.AddDbContextFactory<TradeContext>(options =>
+    options.UseSqlServer(connectionString));
 
-builder.Services.AddScoped<ITradeContext>(p => p.GetRequiredService<TradeContext>());
+builder.Services.AddScoped<ITradeContext>(provider => provider.GetRequiredService<TradeContext>());
+
+builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme)
+    .AddIdentityCookies();
+
+builder.Services.AddIdentityCore<ApplicationUser>(options =>
+    {
+        options.User.RequireUniqueEmail = true;
+    })
+    .AddEntityFrameworkStores<TradeContext>()
+    .AddSignInManager()
+    .AddClaimsPrincipalFactory<TradeUserClaimsPrincipalFactory>()
+    .AddDefaultTokenProviders();
+
+builder.Services.AddAuthorization();
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontends", policy =>
     {
         policy.WithOrigins(
-            "http://localhost:3000",
-            "http://localhost:3002",
-            "http://localhost:3001",
-            "http://localhost:3003",
-            "https://localhost:7182",
-            "http://test-client",
-            "http://test-client:80",
-            "http://trade-blazor-client",
-            "http://trade-blazor-client:80",
-            "http://test-blazor-client",
-            "http://test-blazor-client:80")
-        .AllowAnyHeader()
-        .AllowAnyMethod()
-        .AllowCredentials();
+                "http://localhost:3000",
+                "http://localhost:3002",
+                "http://localhost:3001",
+                "http://localhost:3003",
+                "https://localhost:7182")
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
     });
 });
 
 builder.Services.AddRebus(configure =>
 {
     var rabbitUri = builder.Configuration["RabbitMQ:ConnectionString"]
-    ?? $"amqp://guest:guest@{builder.Configuration["RabbitMQ:Host"] ?? "localhost"}:5672";
+        ?? $"amqp://guest:guest@{builder.Configuration["RabbitMQ:Host"] ?? "localhost"}:5672";
 
     return configure
         .Logging(l => l.Serilog())
@@ -143,6 +158,7 @@ if (args.Contains("--migrate-only"))
         logger.LogCritical(ex, "Database migration failed.");
         Environment.Exit(1);
     }
+
     return;
 }
 
@@ -160,15 +176,19 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("AllowFrontends");
+app.UseStaticFiles();
 app.UseSerilogRequestLogging();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseAntiforgery();
 
 app.MapHealthChecks("/health");
 app.MapPrometheusScrapingEndpoint();
 
-app.MapGroup("/api/auth").MapIdentityApi<ApplicationUser>();
+app.MapTradeAuthEndpoints();
 app.MapControllers();
 app.MapHub<TradeHub>("/hubs/trade");
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
 
 app.Run();

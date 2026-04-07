@@ -134,7 +134,7 @@ The solution is a distributed system composed of two .NET 10 services, a Blazor 
 
 - **TradePlatform.Api** — REST API and SignalR hub. Validates requests, enforces ownership, and dispatches commands via the Rebus Outbox.
 - **TradePlatform.Worker** — Background host. Consumes messages from the `trade-orders` queue, processes transactions, and publishes status events.
-- **TradePlatform.BlazorClient** — Blazor WebAssembly frontend served by nginx, with `/api` and `/hubs` proxied back to the API container.
+- **TradePlatform.BlazorClient** — Blazor WebAssembly frontend hosted by `TradePlatform.Api` as static web assets.
 - **E2E** — Standalone Playwright workspace for browser tests, decoupled from the frontend implementation.
 - **Infrastructure** — SQL Server 2022, RabbitMQ, Redis, Prometheus, Grafana, Seq.
 
@@ -196,7 +196,7 @@ docker compose up -d --build
 | Service | URL |
 |---|---|
 | Frontend | http://localhost:3000 |
-| API (Scalar docs) | http://localhost:8080/scalar/v1 |
+| API (Scalar docs) | http://localhost:3000/scalar/v1 |
 | RabbitMQ Admin | http://localhost:15672 (guest / guest) |
 | Grafana | http://localhost:3100 |
 | Seq (Logs) | http://localhost:5341 |
