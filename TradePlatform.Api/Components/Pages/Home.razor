@@ -1,8 +1,10 @@
+@page "/"
 @implements IDisposable
-@using System.Globalization
-@inject ApiClient ApiClient
-@inject ClientAuthenticationStateProvider AuthStateProvider
-@inject TradeSignalRService SignalRService
+@using System.ComponentModel.DataAnnotations
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IDbContextFactory<TradeContext> DbContextFactory
+@inject IValidator<TransactionDto> TransactionValidator
+@inject IServiceScopeFactory ScopeFactory
 
 <AuthorizeView Context="authView">
     <NotAuthorized>
@@ -26,22 +28,44 @@
                     <div class="message success" role="alert">@authSuccess</div>
                 }
 
-                <EditForm Model="authModel" OnValidSubmit="HandleAuthSubmitAsync" class="form-stack">
-                    <div>
-                        <label for="auth-email">Email</label>
-                        <InputText id="auth-email" class="input" @bind-Value="authModel.Email" type="email" />
-                    </div>
-                    <div>
-                        <label for="auth-password">Password</label>
-                        <InputText id="auth-password" class="input" @bind-Value="authModel.Password" type="password" />
-                    </div>
+                @if (isLoginMode)
+                {
+                    <form method="post" action="/auth/login" class="form-stack">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="returnUrl" value="/" />
 
-                    <button class="primary-button" type="submit" disabled="@authLoading">
-                        @(authLoading ? "Working..." : isLoginMode ? "Sign In" : "Register")
-                    </button>
-                </EditForm>
+                        <div>
+                            <label for="auth-email">Email</label>
+                            <input id="auth-email" class="input" name="email" type="email" autocomplete="username" required />
+                        </div>
+                        <div>
+                            <label for="auth-password">Password</label>
+                            <input id="auth-password" class="input" name="password" type="password" autocomplete="current-password" required />
+                        </div>
 
-                <button class="link-button" @onclick="ToggleAuthMode">
+                        <button class="primary-button" type="submit">Sign In</button>
+                    </form>
+                }
+                else
+                {
+                    <form method="post" action="/auth/register" class="form-stack">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="returnUrl" value="/" />
+
+                        <div>
+                            <label for="register-email">Email</label>
+                            <input id="register-email" class="input" name="email" type="email" autocomplete="username" required />
+                        </div>
+                        <div>
+                            <label for="register-password">Password</label>
+                            <input id="register-password" class="input" name="password" type="password" autocomplete="new-password" required minlength="6" />
+                        </div>
+
+                        <button class="primary-button" type="submit">Register</button>
+                    </form>
+                }
+
+                <button class="link-button" type="button" @onclick="ToggleAuthMode">
                     @(isLoginMode ? "Need an account? Register" : "Have an account? Sign In")
                 </button>
             </div>
@@ -64,7 +88,11 @@
                             </div>
                         }
 
-                        <button class="ghost-inline-button" type="button" @onclick="HandleLogoutAsync">Logout</button>
+                        <form method="post" action="/auth/logout">
+                            <AntiforgeryToken />
+                            <input type="hidden" name="returnUrl" value="/" />
+                            <button class="ghost-inline-button" type="submit">Logout</button>
+                        </form>
                     </div>
                 </div>
 
@@ -92,26 +120,32 @@
                     }
 
                     <EditForm Model="transactionModel" OnValidSubmit="HandleTransactionSubmitAsync" class="form-stack">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary class="message danger validation-summary" />
                         <div class="form-grid">
                             <div>
                                 <label for="source-account">Source Account</label>
                                 <InputText id="source-account" class="input" @bind-Value="transactionModel.SourceAccountId" />
-                                @RenderFieldError(nameof(TransactionRequest.SourceAccountId))
+                                <ValidationMessage For="@(() => transactionModel.SourceAccountId)" />
+                                @RenderFieldError(nameof(TransactionDto.SourceAccountId))
                             </div>
                             <div>
                                 <label for="target-account">Target Account</label>
                                 <InputText id="target-account" class="input" @bind-Value="transactionModel.TargetAccountId" />
-                                @RenderFieldError(nameof(TransactionRequest.TargetAccountId))
+                                <ValidationMessage For="@(() => transactionModel.TargetAccountId)" />
+                                @RenderFieldError(nameof(TransactionDto.TargetAccountId))
                             </div>
                             <div>
                                 <label for="transaction-amount">Amount</label>
                                 <InputNumber id="transaction-amount" class="input" @bind-Value="transactionModel.Amount" />
-                                @RenderFieldError(nameof(TransactionRequest.Amount))
+                                <ValidationMessage For="@(() => transactionModel.Amount)" />
+                                @RenderFieldError(nameof(TransactionDto.Amount))
                             </div>
                             <div>
                                 <label for="transaction-currency">Currency</label>
                                 <InputText id="transaction-currency" class="input" @bind-Value="transactionModel.Currency" />
-                                @RenderFieldError(nameof(TransactionRequest.Currency))
+                                <ValidationMessage For="@(() => transactionModel.Currency)" />
+                                @RenderFieldError(nameof(TransactionDto.Currency))
                             </div>
                         </div>
 
@@ -178,20 +212,28 @@
     private static readonly TimeSpan PendingFeedRefreshInterval = TimeSpan.FromSeconds(1);
     private const int MaxPendingFeedRefreshAttempts = 120;
 
-    private readonly AuthFormModel authModel = new();
     private readonly CancellationTokenSource disposeCts = new();
-    private TransactionRequest transactionModel = new()
+    private TradeTransactionModel transactionModel = new()
     {
         TargetAccountId = "ACC-999",
         Amount = 100,
         Currency = "USD"
     };
 
+    [SupplyParameterFromQuery(Name = "mode")]
+    public string? Mode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "authError")]
+    public string? AuthErrorQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "authSuccess")]
+    public string? AuthSuccessQuery { get; set; }
+
     private bool isLoginMode = true;
-    private bool authLoading;
     private bool transactionLoading;
     private bool accountLoading;
     private bool activityRefreshing;
+    private bool initialized;
     private string? authError;
     private string? authSuccess;
     private string? globalError;
@@ -203,70 +245,39 @@
     private PeriodicTimer? pendingFeedTimer;
     private Dictionary<string, string[]> validationErrors = [];
     private List<AccountActivityDto> activityFeed = [];
-    private bool authenticatedExperienceInitialized;
-    private bool authenticatedExperienceInitializing;
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnParametersSet()
     {
-        SignalRService.StatusUpdated += HandleStatusUpdated;
-        AuthStateProvider.AuthenticationStateChanged += HandleAuthenticationStateChanged;
-
-        var authenticationState = await AuthStateProvider.GetAuthenticationStateAsync();
-        if (authenticationState.User.Identity?.IsAuthenticated == true)
-        {
-            await EnsureAuthenticatedExperienceInitializedAsync();
-        }
+        isLoginMode = !string.Equals(Mode, "register", StringComparison.OrdinalIgnoreCase);
+        authError = AuthErrorQuery;
+        authSuccess = AuthSuccessQuery;
     }
 
-    private async Task HandleAuthSubmitAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        authLoading = true;
-        authError = null;
-        authSuccess = null;
-
-        try
-        {
-            if (isLoginMode)
-            {
-                var response = await ApiClient.LoginAsync(new LoginRequest
-                {
-                    Email = authModel.Email,
-                    Password = authModel.Password
-                }, disposeCts.Token);
-
-                AuthStateProvider.SetAuthentication(response.AccessToken, authModel.Email);
-                await EnsureAuthenticatedExperienceInitializedAsync();
-            }
-            else
-            {
-                await ApiClient.RegisterAsync(new RegisterRequest
-                {
-                    Email = authModel.Email,
-                    Password = authModel.Password
-                }, disposeCts.Token);
-
-                authSuccess = "Registration Successful! Please log in.";
-                isLoginMode = true;
-                authModel.Password = string.Empty;
-            }
-        }
-        catch (Exception ex)
-        {
-            authError = ex.Message;
-        }
-        finally
-        {
-            authLoading = false;
-        }
-    }
-
-    private async Task HandleTransactionSubmitAsync()
-    {
-        if (string.IsNullOrWhiteSpace(AuthStateProvider.CurrentToken))
+        if (!firstRender || initialized)
         {
             return;
         }
 
+        initialized = true;
+
+        var authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (authenticationState.User.Identity?.IsAuthenticated == true)
+        {
+            await InitializeAuthenticatedExperienceAsync(authenticationState.User);
+        }
+    }
+
+    private void ToggleAuthMode()
+    {
+        isLoginMode = !isLoginMode;
+        authError = null;
+        authSuccess = null;
+    }
+
+    private async Task HandleTransactionSubmitAsync()
+    {
         transactionLoading = true;
         globalError = null;
         lastTransactionId = null;
@@ -274,31 +285,51 @@
 
         try
         {
-            var response = await ApiClient.SubmitTransactionAsync(
-                transactionModel,
+            var request = new TransactionDto
+            {
+                SourceAccountId = transactionModel.SourceAccountId,
+                TargetAccountId = transactionModel.TargetAccountId,
+                Amount = transactionModel.Amount,
+                Currency = transactionModel.Currency
+            };
+
+            var validationResult = await TransactionValidator.ValidateAsync(request, disposeCts.Token);
+            if (!validationResult.IsValid)
+            {
+                validationErrors = validationResult.Errors
+                    .GroupBy(error => error.PropertyName)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group.Select(error => error.ErrorMessage).ToArray());
+                return;
+            }
+
+            var authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var userId = authenticationState.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                globalError = "Your session has expired. Please sign in again.";
+                return;
+            }
+
+            using var scope = ScopeFactory.CreateScope();
+            var transactionService = scope.ServiceProvider.GetRequiredService<ITransactionService>();
+
+            var response = await transactionService.CreateTransactionAsync(
+                request,
                 Guid.NewGuid().ToString(),
+                userId,
                 disposeCts.Token);
 
-            lastTransactionId = response.Id.ToString();
+            lastTransactionId = response.TransactionId.ToString();
             pendingProjectionId = lastTransactionId;
             notification = null;
             StartPendingFeedRefreshLoop();
-        }
-        catch (ApiValidationException ex)
-        {
-            validationErrors = ex.Errors;
+            await RefreshActivityFeedAsync();
         }
         catch (Exception ex)
         {
-            if (ex.Message.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase))
-            {
-                AuthStateProvider.ClearAuthentication();
-                await ResetAuthenticatedStateAsync();
-            }
-            else
-            {
-                globalError = ex.Message;
-            }
+            globalError = ex.Message;
         }
         finally
         {
@@ -306,16 +337,8 @@
         }
     }
 
-    private async Task EnsureAuthenticatedExperienceInitializedAsync()
+    private async Task InitializeAuthenticatedExperienceAsync(ClaimsPrincipal user)
     {
-        if (authenticatedExperienceInitialized
-            || authenticatedExperienceInitializing
-            || string.IsNullOrWhiteSpace(AuthStateProvider.CurrentToken))
-        {
-            return;
-        }
-
-        authenticatedExperienceInitializing = true;
         accountLoading = true;
         globalError = null;
         feedError = null;
@@ -324,40 +347,59 @@
 
         try
         {
-            var account = await ApiClient.GetMyAccountAsync(disposeCts.Token);
-            account ??= await ApiClient.ProvisionAccountAsync(disposeCts.Token);
+            var currentUserId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrWhiteSpace(currentUserId))
+            {
+                globalError = "Could not resolve your identity. Please sign in again.";
+                return;
+            }
+
+            var account = await GetOrProvisionAccountAsync(currentUserId);
 
             accountId = account.Id;
             transactionModel.SourceAccountId = account.Id;
-            authenticatedExperienceInitialized = true;
 
             await RefreshActivityFeedAsync();
-
-            try
-            {
-                await SignalRService.ConnectAsync(AuthStateProvider.CurrentToken!, disposeCts.Token);
-                await SignalRService.JoinAccountGroupAsync(account.Id, disposeCts.Token);
-            }
-            catch
-            {
-            }
         }
-        catch (Exception)
+        catch
         {
-            authenticatedExperienceInitialized = false;
             globalError = "Could not load or create your account. Please refresh.";
         }
         finally
         {
-            authenticatedExperienceInitializing = false;
             accountLoading = false;
             await InvokeAsync(StateHasChanged);
         }
     }
 
+    private async Task<Account> GetOrProvisionAccountAsync(string userId)
+    {
+        await using var context = await DbContextFactory.CreateDbContextAsync(disposeCts.Token);
+
+        var existingAccount = await context.Accounts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(account => account.OwnerId == userId, disposeCts.Token);
+
+        if (existingAccount is not null)
+        {
+            return existingAccount;
+        }
+
+        var account = new Account
+        {
+            OwnerId = userId,
+            Currency = TradePlatform.Core.ValueObjects.Currency.FromCode("USD"),
+            Balance = TradeDefaults.InitialAccountBalance
+        };
+
+        context.Accounts.Add(account);
+        await context.SaveChangesAsync(disposeCts.Token);
+        return account;
+    }
+
     private async Task RefreshActivityFeedAsync()
     {
-        if (string.IsNullOrWhiteSpace(AuthStateProvider.CurrentToken))
+        if (string.IsNullOrWhiteSpace(accountId))
         {
             return;
         }
@@ -367,13 +409,44 @@
 
         try
         {
-            activityFeed = (await ApiClient.GetMyAccountActivityAsync(disposeCts.Token)).ToList();
+            await using var context = await DbContextFactory.CreateDbContextAsync(disposeCts.Token);
+            activityFeed = await context.AccountActivityProjections
+                .AsNoTracking()
+                .Where(item => item.AccountId == accountId)
+                .OrderByDescending(item => item.CreatedAtUtc)
+                .ThenByDescending(item => item.LastEventUtc)
+                .Take(20)
+                .Select(item => new AccountActivityDto
+                {
+                    TransactionId = item.TransactionId,
+                    AccountId = item.AccountId,
+                    CounterpartyAccountId = item.CounterpartyAccountId,
+                    Direction = item.Direction,
+                    Amount = item.Amount,
+                    Currency = item.Currency,
+                    Status = item.Status,
+                    CreatedAtUtc = item.CreatedAtUtc,
+                    ProcessedAtUtc = item.ProcessedAtUtc,
+                    LastEventUtc = item.LastEventUtc,
+                    FailureReason = item.FailureReason
+                })
+                .ToListAsync(disposeCts.Token);
 
-            if (!string.IsNullOrWhiteSpace(pendingProjectionId)
-                && activityFeed.Any(item => item.TransactionId.ToString() == pendingProjectionId && IsTerminal(item.Status)))
+            if (!string.IsNullOrWhiteSpace(pendingProjectionId))
             {
-                pendingProjectionId = null;
-                StopPendingFeedRefreshLoop();
+                var pendingItem = activityFeed.FirstOrDefault(item =>
+                    string.Equals(item.TransactionId.ToString(), pendingProjectionId, StringComparison.OrdinalIgnoreCase));
+
+                if (pendingItem is not null)
+                {
+                    notification = $"Transaction {pendingItem.TransactionId} is now {pendingItem.Status}!";
+
+                    if (IsTerminal(pendingItem.Status))
+                    {
+                        pendingProjectionId = null;
+                        StopPendingFeedRefreshLoop();
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -385,52 +458,6 @@
             activityRefreshing = false;
             await InvokeAsync(StateHasChanged);
         }
-    }
-
-    private void HandleStatusUpdated(TransactionUpdate update)
-    {
-        var failureSuffix = string.IsNullOrWhiteSpace(update.FailureReason) ? string.Empty : $" Reason: {update.FailureReason}";
-        notification = $"Transaction {update.TransactionId} is now {update.Status}!{failureSuffix}";
-
-        if (!string.IsNullOrWhiteSpace(pendingProjectionId)
-            && string.Equals(update.TransactionId.ToString(), pendingProjectionId, StringComparison.OrdinalIgnoreCase)
-            && !IsTerminal(update.Status))
-        {
-            StartPendingFeedRefreshLoop();
-        }
-
-        _ = InvokeAsync(RefreshActivityFeedAsync);
-    }
-
-    private void HandleAuthenticationStateChanged(Task<AuthenticationState> authenticationStateTask)
-    {
-        _ = InvokeAsync(async () =>
-        {
-            var authenticationState = await authenticationStateTask;
-            if (authenticationState.User.Identity?.IsAuthenticated == true)
-            {
-                await EnsureAuthenticatedExperienceInitializedAsync();
-            }
-            else
-            {
-                await ResetAuthenticatedStateAsync();
-            }
-
-            await InvokeAsync(StateHasChanged);
-        });
-    }
-
-    private void ToggleAuthMode()
-    {
-        isLoginMode = !isLoginMode;
-        authError = null;
-        authSuccess = null;
-    }
-
-    private async Task HandleLogoutAsync()
-    {
-        AuthStateProvider.ClearAuthentication();
-        await ResetAuthenticatedStateAsync();
     }
 
     private RenderFragment RenderFieldError(string fieldName) => builder =>
@@ -470,7 +497,6 @@
     private void StartPendingFeedRefreshLoop()
     {
         StopPendingFeedRefreshLoop();
-
         pendingFeedTimer = new PeriodicTimer(PendingFeedRefreshInterval);
         _ = RunPendingFeedRefreshLoopAsync(pendingFeedTimer);
     }
@@ -481,48 +507,17 @@
         pendingFeedTimer = null;
     }
 
-    private async Task ResetAuthenticatedStateAsync()
-    {
-        authenticatedExperienceInitialized = false;
-        authenticatedExperienceInitializing = false;
-        accountId = null;
-        globalError = null;
-        feedError = null;
-        notification = null;
-        lastTransactionId = null;
-        pendingProjectionId = null;
-        accountLoading = false;
-        activityRefreshing = false;
-        validationErrors = [];
-        activityFeed = [];
-        transactionModel = new TransactionRequest
-        {
-            TargetAccountId = "ACC-999",
-            Amount = 100,
-            Currency = "USD"
-        };
-        StopPendingFeedRefreshLoop();
-        await SignalRService.DisconnectAsync();
-    }
-
-    public void Dispose()
-    {
-        SignalRService.StatusUpdated -= HandleStatusUpdated;
-        AuthStateProvider.AuthenticationStateChanged -= HandleAuthenticationStateChanged;
-        disposeCts.Cancel();
-        disposeCts.Dispose();
-        StopPendingFeedRefreshLoop();
-    }
-
     private async Task RunPendingFeedRefreshLoopAsync(PeriodicTimer timer)
     {
         var attempts = 0;
+
         while (ReferenceEquals(pendingFeedTimer, timer)
             && attempts < MaxPendingFeedRefreshAttempts
             && await timer.WaitForNextTickAsync(disposeCts.Token))
         {
             attempts++;
             await InvokeAsync(RefreshActivityFeedAsync);
+
             if (string.IsNullOrWhiteSpace(pendingProjectionId))
             {
                 break;
@@ -535,9 +530,26 @@
         }
     }
 
-    private sealed class AuthFormModel
+    public void Dispose()
     {
-        public string Email { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
+        disposeCts.Cancel();
+        disposeCts.Dispose();
+        StopPendingFeedRefreshLoop();
+    }
+
+    private sealed class TradeTransactionModel
+    {
+        [Required(ErrorMessage = "Source account is required.")]
+        public string SourceAccountId { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Target account is required.")]
+        public string TargetAccountId { get; set; } = string.Empty;
+
+        [Range(typeof(decimal), "0.01", "79228162514264337593543950335", ErrorMessage = "Amount must be greater than zero.")]
+        public decimal Amount { get; set; }
+
+        [Required(ErrorMessage = "Currency is required.")]
+        [RegularExpression("^[A-Za-z]{3}$", ErrorMessage = "Currency must be a 3-letter code.")]
+        public string Currency { get; set; } = string.Empty;
     }
 }

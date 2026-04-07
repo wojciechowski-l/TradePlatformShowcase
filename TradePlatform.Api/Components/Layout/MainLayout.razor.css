@@ -30,23 +30,6 @@
     margin: 0 auto;
 }
 
-.ghost-button {
-    border: 1px solid rgba(186, 196, 213, 0.28);
-    background: rgba(139, 92, 246, 0.06);
-    color: #eff4ff;
-    padding: 0.75rem 1.1rem;
-    border-radius: 999px;
-    font: inherit;
-    cursor: pointer;
-    transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
-}
-
-.ghost-button:hover {
-    transform: translateY(-1px);
-    border-color: rgba(95, 220, 255, 0.38);
-    background: rgba(95, 220, 255, 0.08);
-}
-
 @media (max-width: 720px) {
     .shell {
         padding-top: 1rem;

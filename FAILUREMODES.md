@@ -262,7 +262,7 @@ exists within the TTL window.
 
 **System state:** A bounded (≤ 30 second) window of stale positive authorization. Negative
 results are never cached, so a revoked owner will see the correct denial once the cache
-entry expires or the JWT is refreshed.
+entry expires or the user signs in again.
 
 **Note:** Account ownership transfer is not implemented in the current codebase. This
 failure mode is recorded for completeness if that feature is added.

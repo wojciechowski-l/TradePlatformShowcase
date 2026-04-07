@@ -14,7 +14,7 @@ namespace TradePlatform.Infrastructure.Services
         {
             if (user == null || string.IsNullOrWhiteSpace(accountId)) return false;
 
-            var accountIdClaim = user.FindFirst("urn:tradeplatform:accountid")?.Value;
+            var accountIdClaim = user.FindFirst(TradePlatform.Core.Constants.TradeClaimTypes.AccountId)?.Value;
             if (string.Equals(accountIdClaim, accountId, StringComparison.OrdinalIgnoreCase))
             {
                 return true;

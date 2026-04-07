@@ -110,6 +110,7 @@ services:
       dockerfile: TradePlatform.Api/Dockerfile
     container_name: trade-api
     ports:
+      - "3000:8080"
       - "8080:8080"
     environment:
       - ConnectionStrings__DefaultConnection=Server=trade-sql;Database=TradePlatformDb;User Id=sa;Password=${SQL_SA_PASSWORD};TrustServerCertificate=True;
@@ -150,16 +151,6 @@ services:
         condition: service_started
       migrator:
         condition: service_completed_successfully
-
-  client:
-    build:
-      context: .
-      dockerfile: TradePlatform.BlazorClient/Dockerfile
-    container_name: trade-client
-    ports:
-      - "3000:80"
-    depends_on:
-      - api
 
 volumes:
   sql_data:

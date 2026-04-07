@@ -1,5 +1,10 @@
 namespace TradePlatform.Core.Constants
 {
+    public static class TradeClaimTypes
+    {
+        public const string AccountId = "urn:tradeplatform:accountid";
+    }
+
     public static class TradeDefaults
     {
         public const decimal InitialAccountBalance = 1000m;

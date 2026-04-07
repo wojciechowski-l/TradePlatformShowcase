@@ -69,6 +69,7 @@ services:
       dockerfile: TradePlatform.Api/Dockerfile
     container_name: trade-api-e2e
     ports:
+      - "3001:8080"
       - "8081:8080"
     environment:
       - ASPNETCORE_URLS=http://+:8080
@@ -119,23 +120,13 @@ services:
       test-migrator:
         condition: service_completed_successfully
 
-  test-client:
-    build:
-      context: .
-      dockerfile: TradePlatform.BlazorClient/Dockerfile
-    container_name: trade-client-e2e
-    ports:
-      - "3001:80"
-    depends_on:
-      - test-api
-
   test-playwright:
     build:
       context: ./E2E
       dockerfile: Dockerfile.playwright
     container_name: trade-playwright-e2e
     environment:
-      - BASE_URL=http://test-client:80
+      - BASE_URL=http://trade-api:8080
       - API_URL=http://trade-api:8080
       - CI=true
     command: npx playwright test --fail-on-flaky-tests
@@ -143,5 +134,5 @@ services:
       - ./E2E/test-results:/app/test-results
       - ./E2E/playwright-report:/app/playwright-report
     depends_on:
-      - test-client
+      - test-api
       - test-worker
