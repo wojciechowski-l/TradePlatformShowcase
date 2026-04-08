@@ -19,6 +19,7 @@ public class AccountActivityProjectionRebuilderTests(SqlServerTestDatabaseFixtur
     public async Task RebuildAsync_Should_Recreate_Projection_From_Transactions()
     {
         await using var context = await _fixture.CreateContextAsync(TestContext.Current.CancellationToken);
+        var processedAt = DateTime.UtcNow.AddSeconds(-20);
 
         var user = new ApplicationUser
         {
@@ -74,7 +75,8 @@ public class AccountActivityProjectionRebuilderTests(SqlServerTestDatabaseFixtur
                 Amount = 75m,
                 Currency = Currency.FromCode("EUR"),
                 CreatedAtUtc = DateTime.UtcNow.AddMinutes(-1),
-                Status = TransactionStatus.Processed
+                Status = TransactionStatus.Processed,
+                CompletedAtUtc = processedAt
             });
 
         context.AccountActivityProjections.Add(new AccountActivityProjection
@@ -107,6 +109,63 @@ public class AccountActivityProjectionRebuilderTests(SqlServerTestDatabaseFixtur
         Assert.DoesNotContain(rows, row => row.AccountId == "STALE");
         Assert.Contains(rows, row => row.AccountId == "ACC-100" && row.Direction == AccountActivityDirection.Outgoing);
         Assert.Contains(rows, row => row.AccountId == "ACC-200" && row.Direction == AccountActivityDirection.Incoming);
-        Assert.Contains(rows, row => row.AccountId == "ACC-300" && row.Status == TransactionStatus.Processed && row.ProcessedAtUtc.HasValue);
+        Assert.Contains(rows, row => row.AccountId == "ACC-300" && row.Status == TransactionStatus.Processed && row.ProcessedAtUtc == processedAt);
+    }
+
+    [Fact]
+    public async Task RebuildAsync_Should_Preserve_Failure_Metadata_And_Skip_Missing_Target_Accounts()
+    {
+        await using var context = await _fixture.CreateContextAsync(TestContext.Current.CancellationToken);
+        var user = new ApplicationUser
+        {
+            Id = Guid.NewGuid().ToString(),
+            UserName = $"projection-rebuild-failed-{Guid.NewGuid()}",
+            Email = $"projection-rebuild-failed-{Guid.NewGuid()}@example.com",
+            FullName = "Projection Failure Test User"
+        };
+        var completedAt = DateTime.UtcNow.AddSeconds(-10);
+
+        context.Users.Add(user);
+        context.Accounts.Add(new Account
+        {
+            Id = "ACC-500",
+            OwnerId = user.Id,
+            Currency = Currency.FromCode("USD")
+        });
+
+        var failedTransactionId = Guid.NewGuid();
+        context.Transactions.Add(new TransactionRecord
+        {
+            Id = failedTransactionId,
+            SourceAccountId = "ACC-500",
+            TargetAccountId = "ACC-MISSING",
+            Amount = 25m,
+            Currency = Currency.FromCode("USD"),
+            CreatedAtUtc = DateTime.UtcNow.AddMinutes(-1),
+            Status = TransactionStatus.Failed,
+            CompletedAtUtc = completedAt,
+            FailureReason = "Target account does not exist."
+        });
+
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var rebuilder = new AccountActivityProjectionRebuilder(
+            context,
+            Mock.Of<ILogger<AccountActivityProjectionRebuilder>>());
+
+        var rowCount = await rebuilder.RebuildAsync(TestContext.Current.CancellationToken);
+
+        var rows = await context.AccountActivityProjections
+            .Where(p => p.TransactionId == failedTransactionId)
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, rowCount);
+        Assert.Single(rows);
+        Assert.Equal("ACC-500", rows[0].AccountId);
+        Assert.Equal(AccountActivityDirection.Outgoing, rows[0].Direction);
+        Assert.Equal(TransactionStatus.Failed, rows[0].Status);
+        Assert.Equal(completedAt, rows[0].ProcessedAtUtc);
+        Assert.Equal(completedAt, rows[0].LastEventUtc);
+        Assert.Equal("Target account does not exist.", rows[0].FailureReason);
     }
 }

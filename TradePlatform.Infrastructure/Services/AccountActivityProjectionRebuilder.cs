@@ -20,11 +20,15 @@ namespace TradePlatform.Infrastructure.Services
                 .ToListAsync(cancellationToken);
 
             var projections = new List<AccountActivityProjection>(transactions.Count * 2);
+            var existingAccountIds = await context.Accounts
+                .AsNoTracking()
+                .Select(a => a.Id)
+                .ToHashSetAsync(cancellationToken);
 
             foreach (var transaction in transactions)
             {
-                DateTime? processedAtUtc = transaction.Status == TransactionStatus.Processed
-                    ? transaction.CreatedAtUtc
+                DateTime? processedAtUtc = transaction.Status is TransactionStatus.Processed or TransactionStatus.Failed
+                    ? transaction.CompletedAtUtc
                     : null;
 
                 projections.Add(new AccountActivityProjection
@@ -38,8 +42,14 @@ namespace TradePlatform.Infrastructure.Services
                     Status = transaction.Status,
                     CreatedAtUtc = transaction.CreatedAtUtc,
                     ProcessedAtUtc = processedAtUtc,
-                    LastEventUtc = processedAtUtc ?? transaction.CreatedAtUtc
+                    LastEventUtc = processedAtUtc ?? transaction.CreatedAtUtc,
+                    FailureReason = transaction.FailureReason
                 });
+
+                if (!existingAccountIds.Contains(transaction.TargetAccountId))
+                {
+                    continue;
+                }
 
                 projections.Add(new AccountActivityProjection
                 {
@@ -52,7 +62,8 @@ namespace TradePlatform.Infrastructure.Services
                     Status = transaction.Status,
                     CreatedAtUtc = transaction.CreatedAtUtc,
                     ProcessedAtUtc = processedAtUtc,
-                    LastEventUtc = processedAtUtc ?? transaction.CreatedAtUtc
+                    LastEventUtc = processedAtUtc ?? transaction.CreatedAtUtc,
+                    FailureReason = transaction.FailureReason
                 });
             }
 
