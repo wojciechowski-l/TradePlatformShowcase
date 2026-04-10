@@ -103,8 +103,8 @@ intervention is required.
 - RabbitMQ has not yet acknowledged the message (Rebus uses client acknowledgement).
 
 **Recovery:** Rebus re-delivers `TransactionCreatedEvent` (up to 3 attempts via
-`SimpleRetryStrategy`). The handler's terminal-state idempotency guard prevents
-double-processing if a prior partial attempt had already committed.
+`SimpleRetryStrategy`). If no commit occurred, the inbox claim and transaction work roll
+back together, so the next delivery can safely retry from scratch.
 
 ---
 
@@ -115,10 +115,11 @@ double-processing if a prior partial attempt had already committed.
 - `TransactionStatusChangedEvent` outbox entries are committed.
 - Rebus has not yet acknowledged the original `TransactionCreatedEvent` to RabbitMQ.
 
-**Recovery:** RabbitMQ re-delivers `TransactionCreatedEvent`. The handler's idempotency
-guard (terminal status check) short-circuits the handler body, preventing a second status
-update. The previously committed lifecycle events will be forwarded on the next Worker
-startup and the client will receive its SignalR or polling-based update.
+**Recovery:** RabbitMQ re-delivers `TransactionCreatedEvent`. The Worker's durable inbox
+finds the message id already committed in `InboxMessages`, so the duplicate delivery is
+acknowledged and discarded before any second balance write or lifecycle publish. The
+previously committed lifecycle events will be forwarded on the next Worker startup and
+the client will receive its SignalR or polling-based update.
 
 ---
 
@@ -228,23 +229,15 @@ crash sub-case B above, or a network partition causing broker re-delivery).
 **State produced without guard:** Double-processing — status updated twice, duplicate
 lifecycle events published, duplicate SignalR pushes sent.
 
-**State produced with guard:**
+**State produced with current guardrails:**
+- The duplicate delivery attempts to insert the same Rebus message id into `InboxMessages`.
+- The unique `(MessageId, Consumer)` constraint rejects the second claim.
+- The handler returns early. No second balance mutation, no second lifecycle publish.
 
-```csharp
-if (transaction.Status == TransactionStatus.Processed)
-{
-    LogAlreadyProcessed(logger, evt.TransactionId);
-    return;
-}
-```
-
-The handler returns early. The duplicate message is acknowledged and discarded.
-No second write, no second publish.
-
-**System state:** Idempotent. The guard in `TransactionCreatedHandler` makes duplicate
-delivery safe for the happy path. The guard relies on the `TransactionRecord` already
-existing — if it was never written (API crash before commit), there is no record to
-check, but that scenario is handled by case 1 above (clean rollback, no delivery).
+**System state:** Idempotent. `TransactionCreatedHandler` now uses durable inbox
+deduplication keyed by the Rebus message id, with a terminal-state guard as a secondary
+protection. Duplicate delivery is safe even when the original transaction is re-delivered
+after commit but before broker acknowledgement.
 
 ---
 

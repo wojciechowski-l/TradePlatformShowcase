@@ -5,6 +5,7 @@ using TradePlatform.Api.Handlers;
 using TradePlatform.Api.Hubs;
 using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
+using TradePlatform.Core.Interfaces;
 
 namespace TradePlatform.Tests.Api;
 
@@ -21,8 +22,13 @@ public class NotificationHandlerTests
 
         var hubContext = new Mock<IHubContext<TradeHub>>();
         hubContext.SetupGet(context => context.Clients).Returns(clients.Object);
+        var messageMetadataAccessor = new Mock<IMessageMetadataAccessor>();
+        messageMetadataAccessor.Setup(accessor => accessor.GetCurrentMessageId()).Returns("msg-001");
 
-        var handler = new NotificationHandler(hubContext.Object, Mock.Of<ILogger<NotificationHandler>>());
+        var handler = new NotificationHandler(
+            hubContext.Object,
+            messageMetadataAccessor.Object,
+            Mock.Of<ILogger<NotificationHandler>>());
         var message = new TransactionStatusChangedEvent(
             Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
             "ACC-001",
@@ -60,8 +66,13 @@ public class NotificationHandlerTests
 
         var hubContext = new Mock<IHubContext<TradeHub>>();
         hubContext.SetupGet(context => context.Clients).Returns(clients.Object);
+        var messageMetadataAccessor = new Mock<IMessageMetadataAccessor>();
+        messageMetadataAccessor.Setup(accessor => accessor.GetCurrentMessageId()).Returns("msg-002");
 
-        var handler = new NotificationHandler(hubContext.Object, Mock.Of<ILogger<NotificationHandler>>());
+        var handler = new NotificationHandler(
+            hubContext.Object,
+            messageMetadataAccessor.Object,
+            Mock.Of<ILogger<NotificationHandler>>());
 
         await handler.Handle(new TransactionStatusChangedEvent(
             Guid.NewGuid(),
@@ -86,6 +97,7 @@ public class NotificationHandlerTests
         }
 
         return dto.AccountId == accountId
+            && dto.EventId.Length > 0
             && dto.Status == status
             && dto.FailureReason == failureReason;
     }

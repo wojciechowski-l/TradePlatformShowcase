@@ -40,6 +40,19 @@ namespace TradePlatform.Api.Controllers
             }
             catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
             {
+                if (!string.IsNullOrWhiteSpace(idempotencyKey))
+                {
+                    var existing = await _transactionService.GetExistingTransactionAsync(
+                        idempotencyKey,
+                        userId,
+                        cancellationToken);
+
+                    if (existing is not null)
+                    {
+                        return Accepted(new { id = existing.TransactionId, status = existing.Status });
+                    }
+                }
+
                 return Conflict("A transaction with this idempotency key is already being processed.");
             }
         }

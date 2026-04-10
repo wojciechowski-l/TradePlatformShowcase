@@ -270,5 +270,28 @@ namespace TradePlatform.Tests.Unit
                 m => m.Send(It.IsAny<TransactionCreatedEvent>(), It.IsAny<IDictionary<string, string>>()),
                 Times.Never);
         }
+
+        [Fact]
+        public async Task GetExistingTransactionAsync_Should_Return_Null_When_Key_Is_Missing()
+        {
+            var options = new DbContextOptionsBuilder<TradeContext>()
+                .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+                .Options;
+
+            await using var context = new TradeContext(options);
+
+            var service = new TransactionService(
+                context,
+                Mock.Of<IBus>(),
+                CreateMockTransactionScopeManager().Object,
+                Mock.Of<ILogger<TransactionService>>());
+
+            var result = await service.GetExistingTransactionAsync(
+                "missing-key",
+                "test-user-id",
+                TestContext.Current.CancellationToken);
+
+            Assert.Null(result);
+        }
     }
 }

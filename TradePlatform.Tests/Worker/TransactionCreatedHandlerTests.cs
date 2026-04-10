@@ -9,6 +9,7 @@ using TradePlatform.Core.Entities;
 using TradePlatform.Core.Interfaces;
 using TradePlatform.Core.ValueObjects;
 using TradePlatform.Infrastructure.Data;
+using TradePlatform.Infrastructure.Services;
 using TradePlatform.Worker.Handlers;
 
 namespace TradePlatform.Tests.Worker
@@ -78,6 +79,8 @@ namespace TradePlatform.Tests.Worker
             var mockBus = new Mock<IBus>();
             var mockLogger = new Mock<ILogger<TransactionCreatedHandler>>();
             var mockTransactionManager = CreateMockTransactionScopeManager();
+            var messageMetadataAccessor = new Mock<IMessageMetadataAccessor>();
+            messageMetadataAccessor.Setup(accessor => accessor.GetCurrentMessageId()).Returns(Guid.NewGuid().ToString("N"));
 
             var evt = new TransactionCreatedEvent(txId, srcAccId, tgtAccId, 50, "USD");
 
@@ -85,6 +88,8 @@ namespace TradePlatform.Tests.Worker
                 context,
                 mockBus.Object,
                 mockTransactionManager.Object,
+                new SqlMessageInbox(),
+                messageMetadataAccessor.Object,
                 mockLogger.Object);
 
             await handler.Handle(evt);
@@ -174,6 +179,8 @@ namespace TradePlatform.Tests.Worker
             var mockBus = new Mock<IBus>();
             var mockLogger = new Mock<ILogger<TransactionCreatedHandler>>();
             var mockTransactionManager = CreateMockTransactionScopeManager();
+            var messageMetadataAccessor = new Mock<IMessageMetadataAccessor>();
+            messageMetadataAccessor.Setup(accessor => accessor.GetCurrentMessageId()).Returns(Guid.NewGuid().ToString("N"));
 
             var evt = new TransactionCreatedEvent(txId, srcAccId, tgtAccId, 50, "USD");
 
@@ -181,6 +188,8 @@ namespace TradePlatform.Tests.Worker
                 context,
                 mockBus.Object,
                 mockTransactionManager.Object,
+                new SqlMessageInbox(),
+                messageMetadataAccessor.Object,
                 mockLogger.Object);
 
             await handler.Handle(evt);
@@ -236,10 +245,15 @@ namespace TradePlatform.Tests.Worker
             await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             var mockBus = new Mock<IBus>();
+            var messageMetadataAccessor = new Mock<IMessageMetadataAccessor>();
+            messageMetadataAccessor.Setup(accessor => accessor.GetCurrentMessageId()).Returns(Guid.NewGuid().ToString("N"));
+
             var handler = new TransactionCreatedHandler(
                 context,
                 mockBus.Object,
                 CreateMockTransactionScopeManager().Object,
+                new SqlMessageInbox(),
+                messageMetadataAccessor.Object,
                 Mock.Of<ILogger<TransactionCreatedHandler>>());
 
             await handler.Handle(new TransactionCreatedEvent(txId, srcAccId, tgtAccId, 50m, "USD"));
@@ -260,6 +274,90 @@ namespace TradePlatform.Tests.Worker
                         e.FailureReason == "Source account has insufficient funds."),
                     It.IsAny<IDictionary<string, string>>()),
                 Times.Once);
+        }
+
+        [Fact]
+        public async Task Handle_Should_Skip_Duplicate_Message_Delivery()
+        {
+            using var context = _fixture.CreateContext();
+            await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+
+            var userId = Guid.NewGuid().ToString();
+            var srcAccId = $"SRC_{Guid.NewGuid()}";
+            var tgtAccId = $"TGT_{Guid.NewGuid()}";
+            var txId = Guid.NewGuid();
+            var messageId = Guid.NewGuid().ToString("N");
+
+            context.Users.Add(new ApplicationUser
+            {
+                Id = userId,
+                UserName = $"User_{Guid.NewGuid()}",
+                Email = $"test_{Guid.NewGuid()}@example.com",
+                FullName = "Test User"
+            });
+
+            context.Accounts.AddRange(
+                new Account
+                {
+                    Id = srcAccId,
+                    OwnerId = userId,
+                    Currency = Currency.FromCode("USD"),
+                    Balance = 500m
+                },
+                new Account
+                {
+                    Id = tgtAccId,
+                    OwnerId = userId,
+                    Currency = Currency.FromCode("USD"),
+                    Balance = 10m
+                });
+
+            context.Transactions.Add(new TransactionRecord
+            {
+                Id = txId,
+                SourceAccountId = srcAccId,
+                TargetAccountId = tgtAccId,
+                Amount = 50m,
+                Currency = Currency.FromCode("USD"),
+                Status = TransactionStatus.Pending
+            });
+
+            context.InboxMessages.Add(new InboxMessage
+            {
+                MessageId = messageId,
+                Consumer = $"{typeof(TransactionCreatedHandler).FullName}:{typeof(TransactionCreatedEvent).FullName}",
+                ProcessedAtUtc = DateTime.UtcNow
+            });
+
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+            var messageMetadataAccessor = new Mock<IMessageMetadataAccessor>();
+            messageMetadataAccessor.Setup(accessor => accessor.GetCurrentMessageId()).Returns(messageId);
+
+            var mockBus = new Mock<IBus>();
+            var handler = new TransactionCreatedHandler(
+                context,
+                mockBus.Object,
+                CreateMockTransactionScopeManager().Object,
+                new SqlMessageInbox(),
+                messageMetadataAccessor.Object,
+                Mock.Of<ILogger<TransactionCreatedHandler>>());
+
+            await handler.Handle(new TransactionCreatedEvent(txId, srcAccId, tgtAccId, 50m, "USD"));
+
+            context.ChangeTracker.Clear();
+
+            var transaction = await context.Transactions.FindAsync([txId], TestContext.Current.CancellationToken);
+            var source = await context.Accounts.FindAsync([srcAccId], TestContext.Current.CancellationToken);
+            var target = await context.Accounts.FindAsync([tgtAccId], TestContext.Current.CancellationToken);
+
+            Assert.NotNull(transaction);
+            Assert.Equal(TransactionStatus.Pending, transaction.Status);
+            Assert.NotNull(source);
+            Assert.Equal(500m, source.Balance);
+            Assert.NotNull(target);
+            Assert.Equal(10m, target.Balance);
+            mockBus.Verify(m => m.Publish(It.IsAny<object>(), It.IsAny<IDictionary<string, string>>()), Times.Never);
         }
     }
 

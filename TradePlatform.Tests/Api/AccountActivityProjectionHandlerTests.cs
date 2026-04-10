@@ -6,9 +6,11 @@ using TradePlatform.Api.Handlers;
 using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
+using TradePlatform.Core.Interfaces;
 using TradePlatform.Core.ValueObjects;
 using TradePlatform.Tests;
 using TradePlatform.Infrastructure.Data;
+using TradePlatform.Infrastructure.Services;
 
 namespace TradePlatform.Tests.Api;
 
@@ -401,8 +403,15 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
 
     private static AccountActivityProjectionHandler CreateHandler(TradeContext context)
     {
+        var messageMetadataAccessor = new Mock<IMessageMetadataAccessor>();
+        messageMetadataAccessor
+            .Setup(accessor => accessor.GetCurrentMessageId())
+            .Returns(() => Guid.NewGuid().ToString("N"));
+
         return new AccountActivityProjectionHandler(
             new SameDatabaseContextFactory(context),
+            new SqlMessageInbox(),
+            messageMetadataAccessor.Object,
             Mock.Of<ILogger<AccountActivityProjectionHandler>>());
     }
 

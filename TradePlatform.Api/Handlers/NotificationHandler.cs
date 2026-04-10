@@ -1,15 +1,22 @@
-﻿using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR;
 using Rebus.Handlers;
 using TradePlatform.Api.Hubs;
 using TradePlatform.Core.DTOs;
+using TradePlatform.Core.Interfaces;
 
 namespace TradePlatform.Api.Handlers;
 
-public partial class NotificationHandler(IHubContext<TradeHub> hubContext, ILogger<NotificationHandler> logger)
+public partial class NotificationHandler(
+    IHubContext<TradeHub> hubContext,
+    IMessageMetadataAccessor messageMetadataAccessor,
+    ILogger<NotificationHandler> logger)
     : IHandleMessages<TransactionStatusChangedEvent>
 {
     public async Task Handle(TransactionStatusChangedEvent message)
     {
+        var eventId = messageMetadataAccessor.GetCurrentMessageId()
+            ?? $"{message.TransactionId:N}:{message.CurrentStatus}:{message.ChangedAtUtc:O}";
+
         var accountIds = new[] { message.SourceAccountId, message.TargetAccountId }
             .Where(accountId => !string.IsNullOrWhiteSpace(accountId))
             .Distinct()
@@ -19,6 +26,7 @@ public partial class NotificationHandler(IHubContext<TradeHub> hubContext, ILogg
         {
             var dto = new TransactionUpdateDto
             {
+                EventId = eventId,
                 TransactionId = message.TransactionId,
                 Status = message.CurrentStatus,
                 AccountId = accountId,

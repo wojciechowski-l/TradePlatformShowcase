@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Rebus.Bus;
 using Rebus.Handlers;
 using TradePlatform.Core.Constants;
@@ -12,6 +12,8 @@ public partial class TransactionCreatedHandler(
 TradeContext dbContext,
 IBus bus,
 ITransactionScopeManager transactionScopeManager,
+IMessageInbox messageInbox,
+IMessageMetadataAccessor messageMetadataAccessor,
 ILogger<TransactionCreatedHandler> logger)
 : IHandleMessages<TransactionCreatedEvent>
 {
@@ -19,12 +21,28 @@ ILogger<TransactionCreatedHandler> logger)
     {
         LogProcessing(logger, evt.TransactionId);
 
+        var messageId = messageMetadataAccessor.GetCurrentMessageId()
+            ?? throw new InvalidOperationException("Missing Rebus message id for transaction processing.");
+
         TransactionStatus? terminalStatus = null;
 
         await transactionScopeManager.ExecuteInTransactionAsync(async () =>
         {
+            if (!await messageInbox.TryBeginProcessingAsync(
+                dbContext,
+                $"{typeof(TransactionCreatedHandler).FullName}:{typeof(TransactionCreatedEvent).FullName}",
+                messageId))
+            {
+                LogDuplicateDelivery(logger, evt.TransactionId, messageId);
+                return;
+            }
+
             var transaction = await dbContext.Transactions
-                .FirstOrDefaultAsync(t => t.Id == evt.TransactionId);
+                .FromSqlInterpolated($"""
+                    SELECT * FROM Transactions WITH (UPDLOCK, ROWLOCK)
+                    WHERE Id = {evt.TransactionId}
+                    """)
+                .SingleOrDefaultAsync();
 
             if (transaction == null)
             {
@@ -39,10 +57,18 @@ ILogger<TransactionCreatedHandler> logger)
             }
 
             var sourceAccount = await dbContext.Accounts
-                .FirstOrDefaultAsync(a => a.Id == transaction.SourceAccountId);
+                .FromSqlInterpolated($"""
+                    SELECT * FROM Accounts WITH (UPDLOCK, ROWLOCK)
+                    WHERE Id = {transaction.SourceAccountId}
+                    """)
+                .SingleOrDefaultAsync();
 
             var targetAccount = await dbContext.Accounts
-                .FirstOrDefaultAsync(a => a.Id == transaction.TargetAccountId);
+                .FromSqlInterpolated($"""
+                    SELECT * FROM Accounts WITH (UPDLOCK, ROWLOCK)
+                    WHERE Id = {transaction.TargetAccountId}
+                    """)
+                .SingleOrDefaultAsync();
 
             var validationFailure = ValidateTransaction(transaction, sourceAccount, targetAccount);
 
@@ -153,6 +179,9 @@ ILogger<TransactionCreatedHandler> logger)
 
     [LoggerMessage(LogLevel.Warning, "Transaction {TransactionId} not found.")]
     static partial void LogNotFound(ILogger logger, Guid transactionId);
+
+    [LoggerMessage(LogLevel.Information, "Skipping duplicate delivery for Transaction {TransactionId} with message id {MessageId}.")]
+    static partial void LogDuplicateDelivery(ILogger logger, Guid transactionId, string messageId);
 
     [LoggerMessage(LogLevel.Information, "Transaction {TransactionId} already completed with status {Status}.")]
     static partial void LogAlreadyCompleted(ILogger logger, Guid transactionId, TransactionStatus status);

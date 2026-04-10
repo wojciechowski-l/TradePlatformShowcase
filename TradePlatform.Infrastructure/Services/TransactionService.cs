@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Rebus.Bus;
 using System.Diagnostics.Metrics;
@@ -40,27 +41,11 @@ namespace TradePlatform.Infrastructure.Services
             {
                 if (idempotencyKey is not null)
                 {
-                    var ttlCutoff = DateTime.UtcNow.AddHours(-24);
-                    var existing = await _context.IdempotencyKeys
-                        .FirstOrDefaultAsync(
-                            k => k.Key == idempotencyKey
-                              && k.UserId == userId
-                              && k.CreatedAtUtc > ttlCutoff,
-                            cancellationToken);
+                    var existingResult = await GetExistingTransactionAsync(idempotencyKey, userId, cancellationToken);
 
-                    if (existing is not null)
+                    if (existingResult is not null)
                     {
-                        var status = await _context.Transactions
-                            .AsNoTracking()
-                            .Where(t => t.Id == existing.TransactionId)
-                            .Select(t => (TransactionStatus?)t.Status)
-                            .FirstOrDefaultAsync(cancellationToken);
-
-                        return new CreateTransactionResult
-                        {
-                            TransactionId = existing.TransactionId,
-                            Status = status ?? TransactionStatus.Pending
-                        };
+                        return existingResult;
                     }
                 }
 
@@ -93,7 +78,25 @@ namespace TradePlatform.Infrastructure.Services
                     });
                 }
 
-                await _context.SaveChangesAsync(cancellationToken);
+                try
+                {
+                    await _context.SaveChangesAsync(cancellationToken);
+                }
+                catch (DbUpdateException ex) when (idempotencyKey is not null && IsUniqueConstraintViolation(ex))
+                {
+                    if (_context is DbContext dbContext)
+                    {
+                        dbContext.ChangeTracker.Clear();
+                    }
+
+                    var existingResult = await GetExistingTransactionAsync(idempotencyKey, userId, cancellationToken);
+                    if (existingResult is not null)
+                    {
+                        return existingResult;
+                    }
+
+                    throw;
+                }
 
                 await _bus.Send(eventPayload);
                 await _bus.Publish(new TransactionSubmittedEvent(
@@ -120,6 +123,44 @@ namespace TradePlatform.Infrastructure.Services
                     Status = TransactionStatus.Pending
                 };
             }, cancellationToken);
+        }
+
+        public async Task<CreateTransactionResult?> GetExistingTransactionAsync(
+            string idempotencyKey,
+            string userId,
+            CancellationToken cancellationToken = default)
+        {
+            var ttlCutoff = DateTime.UtcNow.AddHours(-24);
+            var existing = await _context.IdempotencyKeys
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    k => k.Key == idempotencyKey
+                      && k.UserId == userId
+                      && k.CreatedAtUtc > ttlCutoff,
+                    cancellationToken);
+
+            if (existing is null)
+            {
+                return null;
+            }
+
+            var status = await _context.Transactions
+                .AsNoTracking()
+                .Where(t => t.Id == existing.TransactionId)
+                .Select(t => (TransactionStatus?)t.Status)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            return new CreateTransactionResult
+            {
+                TransactionId = existing.TransactionId,
+                Status = status ?? TransactionStatus.Pending
+            };
+        }
+
+        private static bool IsUniqueConstraintViolation(DbUpdateException ex)
+        {
+            return ex.InnerException is SqlException sqlEx
+                && (sqlEx.Number == 2601 || sqlEx.Number == 2627);
         }
     }
 }

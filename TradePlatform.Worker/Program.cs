@@ -43,6 +43,8 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<TradeContext>(options =>
 options.UseSqlServer(connectionString));
 
+builder.Services.AddScoped<IMessageInbox, SqlMessageInbox>();
+builder.Services.AddScoped<IMessageMetadataAccessor, RebusMessageMetadataAccessor>();
 builder.Services.AddScoped<ITransactionScopeManager, RebusSqlTransactionScopeManager>();
 
 builder.Services.AddRebus(configure =>

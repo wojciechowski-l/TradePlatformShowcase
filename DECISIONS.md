@@ -301,9 +301,9 @@ resubmits the same logical operation.
 creates a duplicate `TransactionRecord`. Application-level read-check-then-insert without
 a unique constraint is a TOCTOU race: two concurrent requests can both pass the read check
 and both commit. The UNIQUE index makes the database the race arbiter — the second commit
-throws `DbUpdateException` with SQL error 2601/2627, which the controller maps to
-`409 Conflict`. The feature is opt-in: requests without the header bypass the check and
-behave as before.
+throws `DbUpdateException` with SQL error 2601/2627. The server then re-reads the winning
+transaction and returns the original accepted result when it can be resolved. The feature
+is opt-in: requests without the header bypass the check and behave as before.
 
 **Alternatives considered:**
 - *Server-generated key returned on first response, supplied on retry:* Requires a

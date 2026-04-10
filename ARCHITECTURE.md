@@ -103,7 +103,8 @@ calls `IAccountOwnershipService.IsOwnerAsync` against `SourceAccountId`. Returns
 if the caller does not own the account. If an `Idempotency-Key` header is present, the
 key is passed through to `TransactionService`; deduplication occurs inside the
 transaction scope (step 3). A concurrent duplicate that loses the `UNIQUE` constraint
-race returns `409 Conflict`.
+race re-reads the winning row and returns the original accepted result when it can be
+resolved.
 
 **3. Atomic write — `TransactionService` inside `RebusSqlTransactionScopeManager`**
 
@@ -134,7 +135,9 @@ post-commit — a rolled-back transaction leaves no outbox entry.
 **5. Worker — `TransactionCreatedHandler`**
 Receives `TransactionCreatedEvent` from `trade-orders`. Inside its own
 `RebusSqlTransactionScopeManager` scope:
-- Idempotency guard: skips if the transaction is already terminal (`Processed` or `Failed`).
+- Durable inbox guard: claims the Rebus message id in `InboxMessages` before applying side effects.
+- Concurrency control: acquires SQL row locks on the `TransactionRecord` and both participating accounts.
+- Terminal-state guard: still exits early if the transaction is already `Processed` or `Failed`.
 - Validates the accounts and funds, then drives the lifecycle through `Validated` and `Processing`.
 - Applies the balance transfer and ends in `Processed` or `Failed`.
 - Calls `bus.Publish(new TransactionStatusChangedEvent(...))` for each lifecycle transition —
@@ -204,10 +207,12 @@ The two checks are independently enforced. A bypass of one does not bypass the o
   on both services. After 3 failed deliveries, messages are dead-lettered.
 
 **Delivery guarantee:** At-least-once. All message handlers must be idempotent.
-`TransactionCreatedHandler` satisfies this via a status guard before any write.
+`TransactionCreatedHandler` satisfies this via durable inbox deduplication keyed by the
+Rebus message id, plus SQL row locking and a terminal-state guard.
 `AccountActivityProjectionHandler` also avoids manufacturing an incoming projection row
 when the target account does not exist, which keeps failed missing-target transfers
-one-sided in the read model.
+one-sided in the read model. It also records processed message ids in the inbox so
+duplicate Rebus deliveries are discarded before a second projection write.
 
 **Consistency model:** Transactions are eventually consistent. The client observes status
 transitions asynchronously via SignalR after the Worker commits.
@@ -270,8 +275,9 @@ reach the correct replica. All authoritative state lives in SQL Server or Rabbit
 **Worker** is horizontally scalable. `SetNumberOfWorkers(5)` controls in-process
 concurrency. Multiple Worker containers compete on the `trade-orders` queue via standard
 RabbitMQ consumer competition — no explicit coordination is required. The idempotency
-guard in `TransactionCreatedHandler` (status check before update) prevents double-processing
-under competing consumers.
+controls in `TransactionCreatedHandler` prevent double-processing under competing
+consumers: duplicate Rebus deliveries are claimed once via `InboxMessages`, and the
+transaction plus account rows are locked while the transfer is applied.
 
 **Ownership cache** is process-local (`IMemoryCache`). Under horizontal API scale, each
 replica independently warms its cache on first ownership check. The 30-second TTL bounds

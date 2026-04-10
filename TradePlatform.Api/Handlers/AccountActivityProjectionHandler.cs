@@ -3,19 +3,33 @@ using Rebus.Handlers;
 using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
+using TradePlatform.Core.Interfaces;
 using TradePlatform.Infrastructure.Data;
 
 namespace TradePlatform.Api.Handlers;
 
 public partial class AccountActivityProjectionHandler(
     IDbContextFactory<TradeContext> dbContextFactory,
+    IMessageInbox messageInbox,
+    IMessageMetadataAccessor messageMetadataAccessor,
     ILogger<AccountActivityProjectionHandler> logger)
     : IHandleMessages<TransactionSubmittedEvent>,
       IHandleMessages<TransactionStatusChangedEvent>
 {
     public async Task Handle(TransactionSubmittedEvent message)
     {
+        var messageId = messageMetadataAccessor.GetCurrentMessageId()
+            ?? throw new InvalidOperationException("Missing Rebus message id for account activity projection.");
         await using var context = await dbContextFactory.CreateDbContextAsync();
+
+        if (!await messageInbox.TryBeginProcessingAsync(
+            context,
+            $"{typeof(AccountActivityProjectionHandler).FullName}:{typeof(TransactionSubmittedEvent).FullName}",
+            messageId))
+        {
+            LogDuplicateProjectionMessage(logger, message.TransactionId, messageId);
+            return;
+        }
 
         await UpsertProjectionAsync(
             context,
@@ -56,7 +70,18 @@ public partial class AccountActivityProjectionHandler(
 
     public async Task Handle(TransactionStatusChangedEvent message)
     {
+        var messageId = messageMetadataAccessor.GetCurrentMessageId()
+            ?? throw new InvalidOperationException("Missing Rebus message id for account activity projection.");
         await using var context = await dbContextFactory.CreateDbContextAsync();
+
+        if (!await messageInbox.TryBeginProcessingAsync(
+            context,
+            $"{typeof(AccountActivityProjectionHandler).FullName}:{typeof(TransactionStatusChangedEvent).FullName}",
+            messageId))
+        {
+            LogDuplicateProjectionMessage(logger, message.TransactionId, messageId);
+            return;
+        }
 
         var hasExistingProjection = await context.AccountActivityProjections
             .AnyAsync(p => p.TransactionId == message.TransactionId);
@@ -240,6 +265,9 @@ public partial class AccountActivityProjectionHandler(
 
     [LoggerMessage(LogLevel.Information, "Ignoring duplicate activity projection update for Tx {TransactionId} with status {Status}")]
     static partial void LogDuplicateStatusUpdate(ILogger logger, Guid transactionId, TransactionStatus status);
+
+    [LoggerMessage(LogLevel.Information, "Skipping duplicate projection delivery for Tx {TransactionId} with message id {MessageId}")]
+    static partial void LogDuplicateProjectionMessage(ILogger logger, Guid transactionId, string messageId);
 
     [LoggerMessage(LogLevel.Warning, "Recovered missing activity projection for Tx {TransactionId} from processed event with status {Status}")]
     static partial void LogProjectionRecovered(ILogger logger, Guid transactionId, TransactionStatus status);

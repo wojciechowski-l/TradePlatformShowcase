@@ -9,5 +9,10 @@ namespace TradePlatform.Core.Interfaces
             string? idempotencyKey,
             string userId,
             CancellationToken cancellationToken = default);
+
+        Task<CreateTransactionResult?> GetExistingTransactionAsync(
+            string idempotencyKey,
+            string userId,
+            CancellationToken cancellationToken = default);
     }
 }

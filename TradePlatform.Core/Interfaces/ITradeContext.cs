@@ -9,6 +9,7 @@ namespace TradePlatform.Core.Interfaces
         DbSet<TransactionRecord> Transactions { get; }
         DbSet<Account> Accounts { get; }
         DbSet<IdempotencyKey> IdempotencyKeys { get; }
+        DbSet<InboxMessage> InboxMessages { get; }
         DbSet<AccountActivityProjection> AccountActivityProjections { get; }
         Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default);
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);

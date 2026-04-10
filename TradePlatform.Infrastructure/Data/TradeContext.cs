@@ -12,6 +12,7 @@ namespace TradePlatform.Infrastructure.Data
         public DbSet<TransactionRecord> Transactions { get; set; }
         public DbSet<Account> Accounts { get; set; }
         public DbSet<IdempotencyKey> IdempotencyKeys { get; set; }
+        public DbSet<InboxMessage> InboxMessages { get; set; }
         public DbSet<AccountActivityProjection> AccountActivityProjections { get; set; }
 
         public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
@@ -104,6 +105,24 @@ namespace TradePlatform.Infrastructure.Data
             modelBuilder.Entity<IdempotencyKey>()
                 .HasIndex(k => new { k.Key, k.UserId })
                 .IsUnique();
+
+            modelBuilder.Entity<InboxMessage>(builder =>
+            {
+                builder.HasKey(message => message.Id);
+
+                builder.Property(message => message.MessageId)
+                    .HasMaxLength(200)
+                    .IsRequired();
+
+                builder.Property(message => message.Consumer)
+                    .HasMaxLength(200)
+                    .IsRequired();
+
+                builder.HasIndex(message => new { message.MessageId, message.Consumer })
+                    .IsUnique();
+
+                builder.HasIndex(message => message.ProcessedAtUtc);
+            });
 
             modelBuilder.Entity<AccountActivityProjection>(builder =>
             {

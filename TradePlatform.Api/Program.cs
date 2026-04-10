@@ -77,6 +77,8 @@ builder.Services.AddOpenTelemetry()
 
 builder.Services.AddScoped<IAccountOwnershipService, DbAccountOwnershipService>();
 builder.Services.AddScoped<IAccountActivityProjectionRebuilder, AccountActivityProjectionRebuilder>();
+builder.Services.AddScoped<IMessageInbox, SqlMessageInbox>();
+builder.Services.AddScoped<IMessageMetadataAccessor, RebusMessageMetadataAccessor>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
 builder.Services.AddScoped<ITransactionScopeManager, RebusSqlTransactionScopeManager>();
 

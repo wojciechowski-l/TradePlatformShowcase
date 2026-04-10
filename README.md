@@ -78,6 +78,8 @@ The `RebusTransactionScope` writes outbound messages to the `RebusOutbox` table 
 ```
 
 - **Fault Tolerance**: Configured with a `SimpleRetryStrategy` (3 attempts) before dead-lettering. Queues are durable to survive broker restarts.
+- **Consumer idempotency**: Rebus consumers use a durable SQL inbox keyed by message id so duplicate deliveries are discarded before side effects are re-applied.
+- **Concurrency control**: The Worker locks the transaction row and both account rows while applying the transfer, preventing competing consumers from double-mutating balances.
 
 - **Business lifecycle**: The Worker now drives `Pending -> Validated -> Processing -> Processed/Failed`. Missing target accounts, currency mismatches, and insufficient funds end in `Failed` with a reason. Dead-lettered infrastructure failures are still a separate concern and can leave a transaction pre-terminal for manual recovery.
 
@@ -98,6 +100,7 @@ The Worker publishes `TransactionStatusChangedEvent` messages for each lifecycle
 
 - **Redis Backplane**: Ensures SignalR messages reach the correct client regardless of which API replica they are connected to, enabling horizontal scaling of the API layer.
 - **Event-Driven**: The Worker has no direct dependency on the API's internal topology — it only publishes an event.
+- **Stable event identity**: SignalR payloads now include a stable `EventId` derived from the Rebus message id so clients can deduplicate realtime updates if needed.
 
 ### 5. Explicit Routing
 
@@ -115,7 +118,7 @@ A complete three-pillar observability stack:
 
 The API subscribes to `TransactionSubmittedEvent` and `TransactionStatusChangedEvent` and projects them into a dedicated `AccountActivityProjections` table. The hosted Blazor UI reads this projection server-side, which makes eventual consistency visible: a transaction is accepted first, then appears in the feed as the projection catches up, then transitions through `Validated` / `Processing` to its terminal status.
 
-- **Projection idempotency**: repeated terminal deliveries are ignored once the projection is already in a terminal state, and lower-order lifecycle events are prevented from regressing the read model.
+- **Projection idempotency**: the projection consumer uses the same durable inbox pattern for duplicate Rebus deliveries, and lower-order lifecycle events are prevented from regressing the read model.
 - **Projection integrity**: incoming rows are only created when the target account exists, so a failed transfer to a missing target does not fabricate inbound activity for a non-existent account.
 - **Replay story**: in development/test, `POST /api/maintenance/projections/account-activity/rebuild` rebuilds the read model from `Transactions`. A convenience script is included at `./rebuild-account-activity-projection.ps1`.
 
