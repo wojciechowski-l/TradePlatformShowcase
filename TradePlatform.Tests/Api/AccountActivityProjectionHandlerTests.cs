@@ -407,6 +407,9 @@ public class AccountActivityProjectionHandlerTests(SqlServerTestDatabaseFixture 
         messageMetadataAccessor
             .Setup(accessor => accessor.GetCurrentMessageId())
             .Returns(() => Guid.NewGuid().ToString("N"));
+        messageMetadataAccessor
+            .Setup(accessor => accessor.GetCurrentDeliveryCount())
+            .Returns(1);
 
         return new AccountActivityProjectionHandler(
             new SameDatabaseContextFactory(context),

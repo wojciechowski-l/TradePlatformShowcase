@@ -1,8 +1,12 @@
 @page "/"
-@implements IDisposable
+@implements IAsyncDisposable
 @using System.ComponentModel.DataAnnotations
+@using System.Net
+@using Microsoft.AspNetCore.SignalR.Client
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IDbContextFactory<TradeContext> DbContextFactory
+@inject IHttpContextAccessor HttpContextAccessor
+@inject NavigationManager NavigationManager
 @inject IValidator<TransactionDto> TransactionValidator
 @inject IServiceScopeFactory ScopeFactory
 
@@ -213,6 +217,7 @@
     private const int MaxPendingFeedRefreshAttempts = 120;
 
     private readonly CancellationTokenSource disposeCts = new();
+    private readonly RealtimeEventDeduplicator realtimeEventDeduplicator = new();
     private TradeTransactionModel transactionModel = new()
     {
         TargetAccountId = "ACC-999",
@@ -242,6 +247,7 @@
     private string? lastTransactionId;
     private string? pendingProjectionId;
     private string? accountId;
+    private HubConnection? hubConnection;
     private PeriodicTimer? pendingFeedTimer;
     private Dictionary<string, string[]> validationErrors = [];
     private List<AccountActivityDto> activityFeed = [];
@@ -359,6 +365,7 @@
             accountId = account.Id;
             transactionModel.SourceAccountId = account.Id;
 
+            await EnsureRealtimeConnectionAsync(account.Id);
             await RefreshActivityFeedAsync();
         }
         catch
@@ -432,12 +439,14 @@
                 })
                 .ToListAsync(disposeCts.Token);
 
-            if (!string.IsNullOrWhiteSpace(pendingProjectionId))
+            var trackedTransactionId = pendingProjectionId ?? lastTransactionId;
+
+            if (!string.IsNullOrWhiteSpace(trackedTransactionId))
             {
                 var pendingItem = activityFeed.FirstOrDefault(item =>
-                    string.Equals(item.TransactionId.ToString(), pendingProjectionId, StringComparison.OrdinalIgnoreCase));
+                    string.Equals(item.TransactionId.ToString(), trackedTransactionId, StringComparison.OrdinalIgnoreCase));
 
-                if (pendingItem is not null)
+                if (pendingItem is not null && (!string.IsNullOrWhiteSpace(pendingProjectionId) || IsTerminal(pendingItem.Status)))
                 {
                     notification = $"Transaction {pendingItem.TransactionId} is now {pendingItem.Status}!";
 
@@ -470,6 +479,66 @@
             builder.CloseElement();
         }
     };
+
+    private async Task EnsureRealtimeConnectionAsync(string currentAccountId)
+    {
+        if (hubConnection is null)
+        {
+            hubConnection = new HubConnectionBuilder()
+                .WithUrl(NavigationManager.ToAbsoluteUri("/hubs/trade"), options =>
+                {
+                    var cookieContainer = new CookieContainer();
+                    var httpContext = HttpContextAccessor.HttpContext;
+
+                    if (httpContext is not null)
+                    {
+                        foreach (var cookie in httpContext.Request.Cookies)
+                        {
+                            cookieContainer.Add(
+                                NavigationManager.ToAbsoluteUri("/"),
+                                new Cookie(cookie.Key, cookie.Value, "/", NavigationManager.ToAbsoluteUri("/").Host));
+                        }
+                    }
+
+                    options.Cookies = cookieContainer;
+                })
+                .WithAutomaticReconnect()
+                .Build();
+
+            hubConnection.On<TransactionUpdateDto>("ReceiveStatusUpdate", HandleRealtimeStatusUpdateAsync);
+
+            hubConnection.Reconnected += async _ =>
+            {
+                if (!string.IsNullOrWhiteSpace(accountId))
+                {
+                    await hubConnection.InvokeAsync("JoinAccountGroup", accountId, disposeCts.Token);
+                }
+            };
+        }
+
+        if (hubConnection.State == HubConnectionState.Disconnected)
+        {
+            await hubConnection.StartAsync(disposeCts.Token);
+        }
+
+        await hubConnection.InvokeAsync("JoinAccountGroup", currentAccountId, disposeCts.Token);
+    }
+
+    private Task HandleRealtimeStatusUpdateAsync(TransactionUpdateDto update)
+    {
+        if (!string.Equals(update.AccountId, accountId, StringComparison.OrdinalIgnoreCase)
+            || !realtimeEventDeduplicator.TryAccept(update.EventId))
+        {
+            return Task.CompletedTask;
+        }
+
+        return InvokeAsync(async () =>
+        {
+            notification = $"Transaction {update.TransactionId} is now {update.Status}!";
+
+            await RefreshActivityFeedAsync();
+        });
+    }
 
     private static bool IsTerminal(TransactionStatus status) =>
         status is TransactionStatus.Processed or TransactionStatus.Failed;
@@ -530,11 +599,24 @@
         }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         disposeCts.Cancel();
-        disposeCts.Dispose();
         StopPendingFeedRefreshLoop();
+
+        if (hubConnection is not null)
+        {
+            try
+            {
+                await hubConnection.DisposeAsync();
+            }
+            catch
+            {
+                // Ignore teardown failures during component disposal.
+            }
+        }
+
+        disposeCts.Dispose();
     }
 
     private sealed class TradeTransactionModel

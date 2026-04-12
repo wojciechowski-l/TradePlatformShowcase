@@ -32,6 +32,7 @@ namespace TradePlatform.Infrastructure.Services
                     dbContext.ChangeTracker.Clear();
                 }
 
+                MessagingMetrics.RecordInboxDuplicate(consumer);
                 return false;
             }
         }

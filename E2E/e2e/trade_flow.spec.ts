@@ -5,7 +5,10 @@ async function register(page: Page, email: string, password: string) {
   await expect(page.getByRole('heading', { name: 'Create Account' })).toBeVisible();
   await page.locator('#register-email').fill(email);
   await page.locator('#register-password').fill(password);
-  await page.getByRole('button', { name: 'Register' }).click();
+  await Promise.all([
+    page.waitForURL(/\/\?mode=login&authSuccess=/, { timeout: 15000 }),
+    page.getByRole('button', { name: 'Register' }).click(),
+  ]);
 
   await expect(page.getByRole('alert')).toContainText('Registration Successful');
   await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
@@ -15,14 +18,20 @@ async function login(page: Page, email: string, password: string) {
   await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
   await page.locator('#auth-email').fill(email);
   await page.locator('#auth-password').fill(password);
-  await page.getByRole('button', { name: 'Sign In' }).click();
+  await Promise.all([
+    page.waitForURL((url) => url.pathname === '/' && url.search === '', { timeout: 15000 }),
+    page.getByRole('button', { name: 'Sign In' }).click(),
+  ]);
 
   const sourceAccountInput = page.getByLabel('Source Account');
   await expect(sourceAccountInput).toHaveValue(/ACC-\d+/, { timeout: 15000 });
 }
 
 async function logout(page: Page) {
-  await page.getByRole('button', { name: 'Logout' }).click();
+  await Promise.all([
+    page.waitForURL((url) => url.pathname === '/' && url.search === '', { timeout: 15000 }),
+    page.getByRole('button', { name: 'Logout' }).click(),
+  ]);
   await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
 }
 

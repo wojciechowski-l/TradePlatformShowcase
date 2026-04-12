@@ -24,6 +24,7 @@ using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Entities;
 using TradePlatform.Core.Interfaces;
 using TradePlatform.Infrastructure.Data;
+using TradePlatform.Infrastructure.Configuration;
 using TradePlatform.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -52,6 +53,8 @@ builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
+builder.Services.Configure<MessagingReliabilityOptions>(
+    builder.Configuration.GetSection(MessagingReliabilityOptions.SectionName));
 
 var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
 
@@ -68,6 +71,7 @@ builder.Services.AddOpenTelemetry()
     .WithMetrics(metrics => metrics
         .AddAspNetCoreInstrumentation()
         .AddRuntimeInstrumentation()
+        .AddMeter(MessagingMetrics.MeterName)
         .AddMeter("TradePlatform.Transactions")
         .AddPrometheusExporter())
     .WithTracing(tracing => tracing
@@ -81,6 +85,8 @@ builder.Services.AddScoped<IMessageInbox, SqlMessageInbox>();
 builder.Services.AddScoped<IMessageMetadataAccessor, RebusMessageMetadataAccessor>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
 builder.Services.AddScoped<ITransactionScopeManager, RebusSqlTransactionScopeManager>();
+builder.Services.AddHostedService<MessagingBacklogSamplerService>();
+builder.Services.AddHostedService<MessagingRetentionService>();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
@@ -124,8 +130,7 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddRebus(configure =>
 {
-    var rabbitUri = builder.Configuration["RabbitMQ:ConnectionString"]
-        ?? $"amqp://guest:guest@{builder.Configuration["RabbitMQ:Host"] ?? "localhost"}:5672";
+    var rabbitUri = RabbitMqConnectionStringFactory.Create(builder.Configuration);
 
     return configure
         .Logging(l => l.Serilog())
@@ -135,7 +140,7 @@ builder.Services.AddRebus(configure =>
         .Options(o =>
         {
             o.SetNumberOfWorkers(1);
-            o.RetryStrategy(maxDeliveryAttempts: 3);
+            o.RetryStrategy(errorQueueName: MessagingConstants.NotificationsDeadLetterQueue, maxDeliveryAttempts: 3);
             o.EnableDiagnosticSources();
         });
 });

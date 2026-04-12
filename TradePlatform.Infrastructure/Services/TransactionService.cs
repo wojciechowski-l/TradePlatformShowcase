@@ -45,6 +45,7 @@ namespace TradePlatform.Infrastructure.Services
 
                     if (existingResult is not null)
                     {
+                        MessagingMetrics.RecordRequestIdempotencyHit();
                         return existingResult;
                     }
                 }
@@ -92,6 +93,7 @@ namespace TradePlatform.Infrastructure.Services
                     var existingResult = await GetExistingTransactionAsync(idempotencyKey, userId, cancellationToken);
                     if (existingResult is not null)
                     {
+                        MessagingMetrics.RecordRequestIdempotencyHit();
                         return existingResult;
                     }
 

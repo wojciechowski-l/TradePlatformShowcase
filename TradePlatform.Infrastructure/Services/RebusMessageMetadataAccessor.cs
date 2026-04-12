@@ -19,5 +19,20 @@ namespace TradePlatform.Infrastructure.Services
                 ? messageId
                 : null;
         }
+
+        public int GetCurrentDeliveryCount()
+        {
+            var messageContext = MessageContext.Current;
+
+            if (messageContext?.Headers is null)
+            {
+                return 1;
+            }
+
+            return messageContext.Headers.TryGetValue(Headers.DeliveryCount, out var deliveryCount)
+                && int.TryParse(deliveryCount, out var parsedDeliveryCount)
+                    ? parsedDeliveryCount
+                    : 1;
+        }
     }
 }

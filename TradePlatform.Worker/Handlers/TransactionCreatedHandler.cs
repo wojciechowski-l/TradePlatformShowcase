@@ -5,6 +5,7 @@ using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Interfaces;
 using TradePlatform.Infrastructure.Data;
+using TradePlatform.Infrastructure.Services;
 
 namespace TradePlatform.Worker.Handlers;
 
@@ -23,6 +24,12 @@ ILogger<TransactionCreatedHandler> logger)
 
         var messageId = messageMetadataAccessor.GetCurrentMessageId()
             ?? throw new InvalidOperationException("Missing Rebus message id for transaction processing.");
+        var deliveryCount = messageMetadataAccessor.GetCurrentDeliveryCount();
+
+        if (deliveryCount > 1)
+        {
+            MessagingMetrics.RecordRetryAttempt(typeof(TransactionCreatedHandler).FullName!, typeof(TransactionCreatedEvent).FullName!);
+        }
 
         TransactionStatus? terminalStatus = null;
 

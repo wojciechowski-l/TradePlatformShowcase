@@ -3,6 +3,7 @@ using Rebus.Handlers;
 using TradePlatform.Api.Hubs;
 using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Interfaces;
+using TradePlatform.Infrastructure.Services;
 
 namespace TradePlatform.Api.Handlers;
 
@@ -14,6 +15,12 @@ public partial class NotificationHandler(
 {
     public async Task Handle(TransactionStatusChangedEvent message)
     {
+        var deliveryCount = messageMetadataAccessor.GetCurrentDeliveryCount();
+        if (deliveryCount > 1)
+        {
+            MessagingMetrics.RecordRetryAttempt(typeof(NotificationHandler).FullName!, typeof(TransactionStatusChangedEvent).FullName!);
+        }
+
         var eventId = messageMetadataAccessor.GetCurrentMessageId()
             ?? $"{message.TransactionId:N}:{message.CurrentStatus}:{message.ChangedAtUtc:O}";
 
@@ -36,6 +43,8 @@ public partial class NotificationHandler(
 
             await hubContext.Clients.Group(accountId)
                 .SendAsync("ReceiveStatusUpdate", dto);
+
+            MessagingMetrics.RecordStatusUpdatePush(accountId, message.CurrentStatus.ToString());
         }
 
         foreach (var accountId in accountIds)

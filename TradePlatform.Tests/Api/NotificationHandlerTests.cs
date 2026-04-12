@@ -24,6 +24,7 @@ public class NotificationHandlerTests
         hubContext.SetupGet(context => context.Clients).Returns(clients.Object);
         var messageMetadataAccessor = new Mock<IMessageMetadataAccessor>();
         messageMetadataAccessor.Setup(accessor => accessor.GetCurrentMessageId()).Returns("msg-001");
+        messageMetadataAccessor.Setup(accessor => accessor.GetCurrentDeliveryCount()).Returns(1);
 
         var handler = new NotificationHandler(
             hubContext.Object,
@@ -68,6 +69,7 @@ public class NotificationHandlerTests
         hubContext.SetupGet(context => context.Clients).Returns(clients.Object);
         var messageMetadataAccessor = new Mock<IMessageMetadataAccessor>();
         messageMetadataAccessor.Setup(accessor => accessor.GetCurrentMessageId()).Returns("msg-002");
+        messageMetadataAccessor.Setup(accessor => accessor.GetCurrentDeliveryCount()).Returns(1);
 
         var handler = new NotificationHandler(
             hubContext.Object,

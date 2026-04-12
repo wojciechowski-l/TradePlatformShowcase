@@ -10,6 +10,7 @@ using Serilog.Events;
 using TradePlatform.Core.Constants;
 using TradePlatform.Core.DTOs;
 using TradePlatform.Core.Interfaces;
+using TradePlatform.Infrastructure.Configuration;
 using TradePlatform.Infrastructure.Data;
 using TradePlatform.Infrastructure.Services;
 using TradePlatform.Worker.Handlers;
@@ -31,6 +32,7 @@ builder.Logging.AddSerilog();
 builder.Services.AddOpenTelemetry()
 .WithMetrics(metrics => metrics
 .AddRuntimeInstrumentation()
+.AddMeter(MessagingMetrics.MeterName)
 .AddPrometheusHttpListener(options =>
 options.UriPrefixes = ["http://*:9091/"]))
 .WithTracing(tracing => tracing
@@ -49,8 +51,7 @@ builder.Services.AddScoped<ITransactionScopeManager, RebusSqlTransactionScopeMan
 
 builder.Services.AddRebus(configure =>
 {
-    var rabbitUri = builder.Configuration["RabbitMQ:ConnectionString"]
-    ?? $"amqp://guest:guest@{builder.Configuration["RabbitMQ:Host"] ?? "localhost"}:5672";
+    var rabbitUri = RabbitMqConnectionStringFactory.Create(builder.Configuration);
 
     return configure
         .Logging(l => l.Serilog())
@@ -60,7 +61,7 @@ builder.Services.AddRebus(configure =>
         .Options(o =>
         {
             o.SetNumberOfWorkers(5);
-            o.RetryStrategy(maxDeliveryAttempts: 3);
+            o.RetryStrategy(errorQueueName: MessagingConstants.OrdersDeadLetterQueue, maxDeliveryAttempts: 3);
             o.EnableDiagnosticSources();
         });
 });
