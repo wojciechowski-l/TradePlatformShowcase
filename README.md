@@ -204,6 +204,96 @@ docker compose up -d --build
 | Seq (Logs) | http://localhost:5341 |
 
 ---
+## Roadmap
+
+This section tracks planned improvements to the showcase. Items marked **In Progress**
+are actively being worked on. All other items are ordered by priority within their tier.
+
+---
+
+### In Progress
+
+#### .NET Aspire — local orchestration and developer dashboard
+
+Replacing the manual Docker Compose dev loop with a `.NET Aspire` `AppHost` project.
+
+- Single `dotnet run` command replaces `docker compose up -d --build` for local development
+- Built-in developer dashboard at `localhost:18888` surfaces distributed traces, structured
+  logs, and health status across all services in one place — making the cross-service
+  Outbox and SignalR notification flow visible without manually correlating Seq and Grafana
+- `WithReference()` wiring eliminates the manual connection string synchronisation between
+  `docker-compose.yml`, `.env`, and `Program.cs`
+- `WaitForCompletion(migrator)` replaces the `condition: service_completed_successfully`
+  Compose dependency for the migration sequencing guarantee (ADR-008)
+- `AddServiceDefaults()` consolidates the OpenTelemetry setup that is currently duplicated
+  across the API and Worker `Program.cs` files
+
+Docker Compose is retained for CI and E2E testing. Aspire is a local development addition,
+not a replacement for the production-topology compose files.
+
+#### Playwright for .NET — unified test runner
+
+Migrating the E2E layer from the standalone Node.js Playwright workspace to
+`Microsoft.Playwright` inside `TradePlatform.Tests`.
+
+- The entire test pyramid — unit, integration, and E2E — becomes a single `dotnet test`
+  invocation, removing the PowerShell orchestration script as the glue layer
+- Browser environment is preserved across platforms: the `mcr.microsoft.com/playwright/dotnet`
+  image replaces the current `Dockerfile.playwright` Node base in `docker-compose.test.yml`
+- `[Trait("Category", "E2E")]` filter separates E2E tests from integration tests;
+  both run against the same `docker-compose.test.yml` stack
+
+---
+
+### Near Term
+
+#### `HybridCache` — replace `IMemoryCache` in ownership service
+
+`Microsoft.Extensions.Caching.Hybrid.HybridCache` (introduced in .NET 9) combines
+in-process and distributed (Redis) caching in a single API with built-in stampede
+protection. Upgrading `DbAccountOwnershipService` closes the bounded per-replica
+inconsistency window described in ADR-005: positive ownership results would be
+consistent across all API replicas within the TTL rather than independently cached
+per instance. ADR-005 will be updated to reflect the changed trade-off.
+
+#### SQL Server temporal tables — full audit history at zero application cost
+
+Enabling `[Temporal]` on `TransactionRecord` and `Account` adds system-versioned history
+tables at the EF Core migration level, with no application logic changes required. This
+gives the read side a queryable point-in-time view of every balance change and status
+transition — directly supporting the projection rebuild story (ADR-015) and strengthening
+the CQRS-lite narrative.
+
+#### Dead-letter consumer — close the ADR-010 infrastructure gap
+
+ADR-010 explicitly records that dead-lettered infrastructure failures currently leave a
+`TransactionRecord` in `Pending` indefinitely with no user-visible outcome. A dead-letter
+consumer will transition these records to `Failed` with a reason of `InfrastructureFailure`,
+ensuring every transaction reaches a terminal state regardless of failure class. This
+closes the last known gap in the failure mode analysis.
+
+#### ASP.NET Core built-in rate limiting — transaction endpoint
+
+Adding a `SlidingWindowLimiter` or `TokenBucketLimiter` to `POST /api/transactions` using
+`System.Threading.RateLimiting` (built into .NET 7+, no third-party packages). The
+addition demonstrates awareness of the built-in primitives and complements the existing
+idempotency key implementation (ADR-013) as a defence-in-depth boundary.
+
+---
+
+### Documentation
+
+The following ADRs are pending update or creation as implementation work lands:
+
+| ADR | Change |
+|---|---|
+| ADR-005 | Update ownership cache trade-off after HybridCache migration |
+| ADR-008 | Note that Aspire `WaitForCompletion` replaces the Compose dependency syntax |
+| ADR-010 | Mark infrastructure gap as resolved once dead-letter consumer ships |
+| ADR-016 (new) | Document the Aspire vs Docker Compose split for local dev vs CI/E2E |
+| ADR-017 (new) | Document the Blazor polling fallback as a first-class resilience decision |
+
+---
 
 ## Tech Stack
 

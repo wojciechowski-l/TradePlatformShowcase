@@ -379,3 +379,65 @@ attempted payload.
 
 **Trade-off:** The read model is intentionally asymmetric for this failure case. That
 asymmetry is preferable to showing fake inbound activity.
+
+---
+
+## ADR-016 — .NET Aspire for local development orchestration alongside Docker Compose
+
+**Status:** In Progress
+**Files:** `TradePlatform.AppHost/Program.cs` (pending)
+
+**Decision:** Add a .NET Aspire `AppHost` project for local development orchestration.
+Docker Compose is retained unchanged for CI pipelines and E2E test runs.
+
+**Reasoning:** The existing Docker Compose dev loop requires `docker compose up -d --build`,
+manual `.env` population, and separately opening Seq, Grafana, and RabbitMQ admin tabs to
+observe the running system. Aspire replaces this with a single `dotnet run` command and a
+built-in developer dashboard that surfaces distributed traces, structured logs, and health
+status across all services — making the cross-service Outbox and SignalR notification flow
+directly visible without manual log correlation.
+
+`WithReference()` wiring injects connection strings automatically, eliminating the
+synchronisation surface between `docker-compose.yml`, `.env`, and each `Program.cs`.
+`WaitForCompletion(migrator)` provides the same migration sequencing guarantee as the
+`condition: service_completed_successfully` Compose dependency in ADR-008, expressed as a
+typed C# API rather than YAML.
+
+`AddServiceDefaults()` consolidates the OpenTelemetry configuration currently duplicated
+across the API and Worker hosts.
+
+**Why Docker Compose is retained:** Aspire's local orchestration model is not suited to CI
+or containerised E2E runs. `docker-compose.test.yml` owns the E2E topology and is the
+correct tool for that context. The two are complementary: Aspire for the inner dev loop,
+Compose for the outer test and deployment boundary.
+
+**Trade-off:** Adds an `AppHost` project and a `ServiceDefaults` project to the solution.
+Developers unfamiliar with Aspire face a short learning curve. Accepted because Aspire is
+Microsoft's stated direction for .NET cloud-native development and the dashboard provides
+immediate observability value for anyone evaluating the showcase.
+
+---
+
+## ADR-017 — Blazor polling fallback as a resilience boundary for eventual consistency
+
+**Status:** Implemented
+**Files:** `TradePlatform.Api/Components/Pages/Home.razor`
+
+**Decision:** The Blazor dashboard polls the `AccountActivityProjections` read model on a
+short interval until a terminal transaction status is observed, up to a 60-second ceiling.
+This runs independently of the SignalR push path.
+
+**Reasoning:** The SignalR notification path has two points of failure: the Redis backplane
+(Failure Mode 7) and the WebSocket connection itself. If either fails, a purely push-driven
+UI leaves the user with no visible progress after submitting a trade. Polling the projection
+directly provides a convergence path that bypasses both failure points entirely — the
+transaction's committed state in SQL Server is always the source of truth, and the read
+model projection will eventually reflect it regardless of what the real-time layer does.
+
+This makes eventual consistency tolerable to a user: the UI settles on the correct terminal
+state via polling even when the real-time push does not arrive.
+
+**Trade-off:** Polling produces redundant read model queries when the SignalR push arrives
+promptly. The query is cheap (a projection row lookup by account ID), and the 60-second
+ceiling bounds the polling window. The overlap between push and poll is accepted as the
+cost of a reliable user-facing convergence guarantee.
