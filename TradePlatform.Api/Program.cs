@@ -39,9 +39,12 @@ builder.Host.UseSerilog((context, services, configuration) =>
     .WriteTo.Console();
 
     if (!builder.Environment.IsEnvironment("Test"))
-    {
-        configuration.WriteTo.Seq(context.Configuration["Seq:ServerUrl"] ?? "http://seq");
-    }
+{
+    var seqUrl = builder.Configuration.GetConnectionString("seq") 
+        ?? builder.Configuration["Seq:ServerUrl"] 
+        ?? "http://seq";
+    configuration.WriteTo.Seq(seqUrl);
+}
 });
 
 builder.Services.AddControllers();
@@ -53,7 +56,9 @@ builder.Services.AddHealthChecks();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
 
-var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
+var redisConnectionString = builder.Configuration.GetConnectionString("redis") 
+    ?? builder.Configuration["Redis:ConnectionString"] 
+    ?? "localhost:6379";
 
 builder.Services.AddSignalR()
     .AddStackExchangeRedis(redisConnectionString, options =>
@@ -82,11 +87,11 @@ builder.Services.AddScoped<IMessageMetadataAccessor, RebusMessageMetadataAccesso
 builder.Services.AddScoped<ITransactionService, TransactionService>();
 builder.Services.AddScoped<ITransactionScopeManager, RebusSqlTransactionScopeManager>();
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+// ✅ Checks Aspire connection string first, then falls back to DefaultConnection
+var connectionString = builder.Configuration.GetConnectionString("TradePlatformDb")
+    ?? builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("Connection string 'TradePlatformDb' or 'DefaultConnection' not found.");
 
-builder.Services.AddDbContext<TradeContext>(options =>
-    options.UseSqlServer(connectionString));
 builder.Services.AddDbContextFactory<TradeContext>(options =>
     options.UseSqlServer(connectionString));
 
@@ -124,7 +129,8 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddRebus(configure =>
 {
-    var rabbitUri = builder.Configuration["RabbitMQ:ConnectionString"]
+    var rabbitUri = builder.Configuration.GetConnectionString("rabbitmq")
+        ?? builder.Configuration["RabbitMQ:ConnectionString"]
         ?? $"amqp://guest:guest@{builder.Configuration["RabbitMQ:Host"] ?? "localhost"}:5672";
 
     return configure
